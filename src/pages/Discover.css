@@ -1,0 +1,16 @@
+/* src/pages/Discover.css */
+.discover-container {
+    text-align: center;
+    padding: 20px;
+  }
+  
+  .discover-container h1 {
+    font-size: 32px;
+    color: #fff;
+  }
+  
+  .discover-container p {
+    color: rgb(243, 214, 214);
+    font-size: 18px;
+  }
+  

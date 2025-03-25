@@ -1,0 +1,28 @@
+/* Estilos para a Navbar */
+.navbar {
+    position: fixed; /* Fixa a navbar no topo */
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    padding: 20px 0;
+    background-color: #333; /* Cor de fundo escura para a navbar */
+    z-index: 10; /* Para garantir que fique acima do conteúdo */
+  }
+  
+  .navbar a {
+    text-decoration: none;
+    color: rgb(243, 214, 214); /* Cor dos links */
+    font-size: 18px;
+    padding: 8px 20px;
+    border-radius: 5px;
+    transition: background-color 0.3s ease;
+  }
+  
+  .navbar a:hover {
+    background-color: #333; /* Cor de destaque ao passar o mouse */
+    color: #fff;
+  }
+  
