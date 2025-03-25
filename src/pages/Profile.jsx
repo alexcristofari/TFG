@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import React from 'react';
 import './Profile.css';
 
@@ -11,3 +12,16 @@ const Profile = () => {
 };
 
 export default Profile;
+=======
+function Profile() {
+    return (
+      <div>
+        <h1>Meu Perfil</h1>
+        <p>Aqui você pode ver suas preferências e editar seu perfil.</p>
+      </div>
+    );
+  }
+  
+  export default Profile;
+  
+>>>>>>> aa01dc8727fd281a5378793067920dc991a95a04
