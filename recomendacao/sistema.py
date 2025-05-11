@@ -1,37 +1,69 @@
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+import random
 
-# --- Configurações do app ---
-CLIENT_ID = '0db6eab6b5674742bf395225bdbede8e'
-CLIENT_SECRET = 'ae4e1f84b4b9424087eb593d4130bbd9'
-REDIRECT_URI = 'http://127.0.0.1:8888/callback'
-SCOPE = 'playlist-read-private user-library-read user-read-private'
-
-# --- Autenticação via OAuth2 ---
+# Autenticação com permissões de leitura de playlists públicas
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-    client_id=CLIENT_ID,
-    client_secret=CLIENT_SECRET,
-    redirect_uri=REDIRECT_URI,
-    scope=SCOPE
+    scope="playlist-read-private playlist-read-collaborative"
 ))
 
-# --- Pega informações do usuário ---
-user = sp.current_user()
-print(f"Usuário logado: {user['display_name']} (ID: {user['id']})")
+def get_user_id():
+    return sp.current_user()['id']
 
-# --- Lista playlists do usuário ---
-playlists = sp.current_user_playlists()
-print(f"\nPlaylists encontradas: {len(playlists['items'])}")
+def get_playlists(user_id=None):
+    playlists = []
+    offset = 0
 
-for i, playlist in enumerate(playlists['items']):
-    print(f"{i+1}. {playlist['name']} (ID: {playlist['id']})")
+    if user_id is None:
+        user_id = get_user_id()
 
-# --- Pega faixas da primeira playlist (se existir) ---
-if playlists['items']:
-    playlist_id = playlists['items'][0]['id']
-    results = sp.playlist_tracks(playlist_id)
+    while True:
+        results = sp.user_playlists(user_id, offset=offset)
+        items = results['items']
+        if not items:
+            break
+        playlists.extend(items)
+        offset += len(items)
+    
+    return playlists
 
-    print(f"\n🎵 Músicas da playlist '{playlists['items'][0]['name']}':")
-    for i, item in enumerate(results['items']):
-        track = item['track']
-        print(f"{i+1}. {track['name']} - {track['artists'][0]['name']}")
+def get_tracks_from_playlists(playlists):
+    track_ids = set()
+    for playlist in playlists:
+        playlist_id = playlist['id']
+        tracks = sp.playlist_tracks(playlist_id)
+        for item in tracks['items']:
+            track = item['track']
+            if track and track['id']:
+                track_ids.add(track['id'])
+    return list(track_ids)
+
+def recomendar_musicas(track_ids, num_recomendacoes=5):
+    if not track_ids:
+        return []
+
+    seed_tracks = random.sample(track_ids, min(5, len(track_ids)))
+    recommendations = sp.recommendations(seed_tracks=seed_tracks, limit=num_recomendacoes)
+    return recommendations['tracks']
+
+# Altere este valor para o ID do usuário que deseja testar (ou deixe como None para usar o seu próprio perfil)
+user_id_amigo = 'ID_DO_USUARIO_DO_AMIGO'  # Exemplo: 'spotify'
+
+# Obter playlists do usuário especificado
+playlists = get_playlists(user_id=user_id_amigo)
+
+# Mostrar playlists encontradas
+print("Playlists públicas do usuário:")
+for playlist in playlists:
+    print(f"Nome: {playlist['name']} | ID: {playlist['id']}")
+
+# Extrair faixas e recomendar
+track_ids = get_tracks_from_playlists(playlists)
+recomendacoes = recomendar_musicas(track_ids)
+
+# Mostrar recomendações
+print("\nRecomendações baseadas nas playlists públicas:")
+for track in recomendacoes:
+    nome = track['name']
+    artista = track['artists'][0]['name']
+    print(f"Nome: {nome} | Artista: {artista}")
