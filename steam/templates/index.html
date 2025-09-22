@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Recomendação de Jogos - Steam</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #1b2838;
+            color: #c7d5e0;
+            font-family: "Motiva Sans", Arial, Helvetica, sans-serif;
+        }
+        .card {
+            background-color: #16202d;
+            border: 1px solid #66c0f4;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background-color: #66c0f4;
+            color: #1b2838;
+            font-weight: bold;
+        }
+        .game-card {
+            transition: transform 0.3s;
+        }
+        .game-card:hover {
+            transform: translateY(-5px);
+        }
+        .game-thumbnail {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 5px;
+        }
+        .badge {
+            font-size: 0.8em;
+        }
+        .recommendation-reason {
+            font-style: italic;
+            color: #a4d0ff;
+        }
+        .profile-section {
+            background-color: #0e1822;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 30px;
+        }
+        .feature-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 2px;
+            background-color: #2a475e;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .yes {
+            color: #66c0f4;
+        }
+        .no {
+            color: #c7d5e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <header class="text-center mb-4">
+            <h1 class="display-4">Sistema de Recomendação de Jogos</h1>
+            <p class="lead">Baseado no seu perfil da Steam</p>
+        </header>
+        
+        <div class="profile-section">
+            <h2>Seu Perfil de Jogos</h2>
+            <div class="row">
+                <div class="col-md-6">
+                    <h4>Informações Gerais</h4>
+                    <p><strong>Steam ID:</strong> {{ profile.steam_id }}</p>
+                    <p><strong>Jogos analisados:</strong> {{ profile.total_games_analyzed }}</p>
+                    
+                    <h4>Características Médias</h4>
+                    <p><strong>Preço médio:</strong> R${{ "%.2f"|format(profile.avg_features.price) }}</p>
+                    <p><strong>Avaliação positiva:</strong> {{ "%.0f%%"|format(profile.avg_features.positive_ratio * 100) }}</p>
+                    <p><strong>Popularidade média:</strong> {{ "%.0f"|format(profile.avg_features.total_reviews) }} avaliações</p>
+                    <p><strong>Prefere jogos recentes:</strong> 
+                        <span class="{% if profile.avg_features.years_since_release < 3 %}yes{% else %}no{% endif %}">
+                            {% if profile.avg_features.years_since_release < 3 %}Sim{% else %}Não{% endif %}
+                        </span>
+                    </p>
+                </div>
+                
+                <div class="col-md-6">
+                    <h4>Preferências de Gênero</h4>
+                    <div>
+                        <span class="feature-badge {% if profile.avg_features.is_multiplayer > 0.5 %}yes{% else %}no{% endif %}">
+                            Multiplayer: {% if profile.avg_features.is_multiplayer > 0.5 %}Sim{% else %}Não{% endif %}
+                        </span>
+                        <span class="feature-badge {% if profile.avg_features.is_singleplayer > 0.5 %}yes{% else %}no{% endif %}">
+                            Singleplayer: {% if profile.avg_features.is_singleplayer > 0.5 %}Sim{% else %}Não{% endif %}
+                        </span>
+                        <span class="feature-badge {% if profile.avg_features.is_rpg > 0.5 %}yes{% else %}no{% endif %}">
+                            RPG: {% if profile.avg_features.is_rpg > 0.5 %}Sim{% else %}Não{% endif %}
+                        </span>
+                        <span class="feature-badge {% if profile.avg_features.is_action > 0.5 %}yes{% else %}no{% endif %}">
+                            Action: {% if profile.avg_features.is_action > 0.5 %}Sim{% else %}Não{% endif %}
+                        </span>
+                        <span class="feature-badge {% if profile.avg_features.is_strategy > 0.5 %}yes{% else %}no{% endif %}">
+                            Strategy: {% if profile.avg_features.is_strategy > 0.5 %}Sim{% else %}Não{% endif %}
+                        </span>
+                        <span class="feature-badge {% if profile.avg_features.is_indie > 0.5 %}yes{% else %}no{% endif %}">
+                            Indie: {% if profile.avg_features.is_indie > 0.5 %}Sim{% else %}Não{% endif %}
+                        </span>
+                    </div>
+                    
+                    <h4 class="mt-3">Top 5 Jogos Mais Jogados</h4>
+                    <ol>
+                        {% for game in profile.top_games[:5] %}
+                            <li>
+                                {{ game.name }}
+                                <span class="text-muted">
+                                    - {{ (game.playtime // 60) }}h {{ (game.playtime % 60) }}min
+                                </span>
+                            </li>
+                        {% endfor %}
+                    </ol>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <h2>Suas Recomendações Personalizadas</h2>
+                <div class="row">
+                    {% for rec in recommendations %}
+                        <div class="col-md-4 mb-4">
+                            <div class="card game-card h-100">
+                                <div class="card-header">
+                                    #{{ rec.rank }} - {{ rec.game_info.name }}
+                                </div>
+                                <div class="card-body">
+                                    {% if rec.game_info.thumbnail %}
+                                        <img src="{{ rec.game_info.thumbnail }}" alt="{{ rec.game_info.name }}" class="game-thumbnail mb-3">
+                                    {% endif %}
+                                    
+                                    <p><strong>Preço:</strong> 
+                                        {% if rec.game_info.price == 0 %}
+                                            <span class="badge bg-success">Gratuito</span>
+                                        {% else %}
+                                            R${{ "%.2f"|format(rec.game_info.price) }}
+                                        {% endif %}
+                                    </p>
+                                    
+                                    <p><strong>Gêneros:</strong></p>
+                                    <div>
+                                        {% for genre in rec.game_info.genres %}
+                                            <span class="badge bg-primary">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <p class="mt-3 recommendation-reason">
+                                        {{ rec.recommendation_reason }}
+                                    </p>
+                                    
+                                    <div class="mt-3">
+                                        <a href="{{ rec.game_info.url }}" target="_blank" class="btn btn-primary btn-sm">
+                                            Ver na Steam
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <small>Similaridade: {{ "%.2f"|format(rec.similarity_score) }}</small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
