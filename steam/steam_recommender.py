@@ -47,10 +47,56 @@ class SteamRecommendationSystem:
         self.user_features_vector = None
         self.games_database = []
         self.owned_games_ids = set()
+        self.user_name = None
         
         # Cache para requisições à API
         self.app_details_cache = {}
         
+        # Lista expandida de gêneros para rastreamento
+        self.all_genres = [
+            'Action', 'Adventure', 'RPG', 'Strategy', 'Simulation', 'Sports', 'Racing',
+            'Indie', 'Casual', 'Massively Multiplayer', 'Free to Play', 'Early Access',
+            'Animation & Modeling', 'Audio Production', 'Video Production', 'Design & Illustration',
+            'Utilities', 'Web Publishing', 'Education', 'Software Training', 'Game Development',
+            'Documentary', 'Accounting', 'Violent', 'Gore', 'Sexual Content', 'Nudity',
+            'Atmospheric', 'Dark', 'Exploration', 'Puzzle', 'Platformer', 'Shooter',
+            'Fighting', 'Horror', 'Survival', 'Stealth', 'Fantasy', 'Sci-Fi', 'Retro'
+        ]
+        
+        # Lista de gêneros principais para preferências
+        self.main_genres = [
+            'Action', 'Adventure', 'RPG', 'Strategy', 'Simulation', 'Sports', 'Racing', 'Indie'
+        ]
+        
+        # Lista de gêneros adicionais para preferências
+        self.additional_genres = [
+            'Casual', 'Massively Multiplayer', 'Free to Play', 'Early Access',
+            'Puzzle', 'Platformer', 'Shooter', 'Horror'
+        ]
+        
+    def get_user_summary(self) -> Dict:
+        """Obtém informações básicas do usuário"""
+        url = f"{self.base_url}/ISteamUser/GetPlayerSummaries/v0002/"
+        params = {
+            'key': self.api_key,
+            'steamids': self.steam_id
+        }
+        
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            players = data.get('response', {}).get('players', [])
+            
+            if players:
+                return players[0]
+            return {}
+            
+        except Exception as e:
+            print(f"Erro ao obter informações do usuário: {e}")
+            return {}
+    
     def get_owned_games(self) -> List[Dict]:
         """Obtém a biblioteca de jogos do usuário"""
         url = f"{self.base_url}/IPlayerService/GetOwnedGames/v0001/"
@@ -133,7 +179,6 @@ class SteamRecommendationSystem:
                     self.user_profile = json.load(f)
                     
                 # Verifica se o perfil tem todas as características necessárias
-                # Se não tiver, força a reconstrução
                 required_features = ['price', 'positive_ratio', 'total_reviews', 
                                    'years_since_release', 'supports_controller']
                 for feature in required_features:
@@ -150,6 +195,10 @@ class SteamRecommendationSystem:
                 
         print("Construindo perfil do usuário...")
         
+        # Obtém informações do usuário
+        user_info = self.get_user_summary()
+        self.user_name = user_info.get('personaname', 'Usuário Steam')
+        
         # Obtém jogos do usuário
         owned_games = self.get_owned_games()
         
@@ -159,7 +208,7 @@ class SteamRecommendationSystem:
         # Armazena IDs dos jogos possuídos
         self.owned_games_ids = {game['appid'] for game in owned_games}
         
-        # Ordena por tempo de jogo
+        # Ordena por tempo de jogo (prioridade para jogos mais jogados)
         sorted_games = sorted(owned_games, key=lambda x: x.get('playtime_forever', 0), reverse=True)
         
         # Limita número de jogos
@@ -168,6 +217,7 @@ class SteamRecommendationSystem:
         # Extrai características dos jogos
         feature_vectors = []
         analyzed_games = []
+        paid_games_prices = []  # Para calcular média de preços sem jogos grátis
         
         for game in games_to_analyze:
             app_id = game['appid']
@@ -180,50 +230,67 @@ class SteamRecommendationSystem:
             genres = [g['description'] for g in details.get('genres', [])]
             categories = [c['description'] for c in details.get('categories', [])]
             
-            # Características numéricas - TRATAMENTO MELHORADO DO PREÇO
+            # Características numéricas
             price_info = details.get('price_overview', {})
-            price = price_info.get('final', 0) / 100.0  # Converte centavos para reais
+            price = price_info.get('final', 0) / 100.0
             
-            # Calcula a proporção de avaliações positivas
+            # Adiciona à lista de preços pagos se não for gratuito
+            if price > 0:
+                paid_games_prices.append(price)
+            
             positive = details.get('positive', 0)
             total = details.get('total', 1)
             positive_ratio = positive / total if total > 0 else 0
             
-            # Data de lançamento (anos desde o lançamento)
             release_date = details.get('release_date', {}).get('date', '')
             years_since_release = 0
             if release_date:
                 try:
-                    # Tenta extrair o ano
                     year = int(release_date.split(',')[-1].strip())
                     current_year = datetime.datetime.now().year
                     years_since_release = current_year - year
                 except:
                     pass
             
-            # Suporte a controle
             supports_controller = 1 if 'Full Controller Support' in categories else 0
             
+            # Cria dicionário de características de gênero
+            genre_features = {}
+            for genre in self.all_genres:
+                genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+                genre_features[genre_key] = 1 if genre in genres else 0
+            
+            # Características principais
             features = {
                 'price': price,
                 'positive_ratio': positive_ratio,
-                'total_reviews': total,  # Número total de reviews (popularidade)
+                'total_reviews': total,
                 'years_since_release': years_since_release,
                 'supports_controller': supports_controller,
                 'is_multiplayer': 1 if 'Multi-player' in categories else 0,
                 'is_singleplayer': 1 if 'Single-player' in categories else 0,
                 'is_coop': 1 if 'Co-op' in categories else 0,
-                'is_rpg': 1 if 'RPG' in genres else 0,
-                'is_action': 1 if 'Action' in genres else 0,
-                'is_strategy': 1 if 'Strategy' in genres else 0,
-                'is_indie': 1 if 'Indie' in genres else 0,
-                'is_adventure': 1 if 'Adventure' in genres else 0,
-                'is_sports': 1 if 'Sports' in genres else 0,
-                'is_racing': 1 if 'Racing' in genres else 0,
-                'is_simulation': 1 if 'Simulation' in genres else 0,
-                'is_casual': 1 if 'Casual' in genres else 0,
-                'playtime': game.get('playtime_forever', 0)  # Em minutos
+                'playtime': game.get('playtime_forever', 0)
             }
+            
+            # Adiciona características de gênero
+            features.update(genre_features)
+            
+            # Garante que todas as características estejam presentes
+            all_feature_keys = [
+                'price', 'positive_ratio', 'total_reviews', 'years_since_release',
+                'supports_controller', 'is_multiplayer', 'is_singleplayer', 'is_coop', 'playtime'
+            ]
+            
+            # Adiciona chaves de gênero
+            for genre in self.all_genres:
+                genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+                all_feature_keys.append(genre_key)
+            
+            # Garante que todas as chaves existam no dicionário features
+            for key in all_feature_keys:
+                if key not in features:
+                    features[key] = 0
             
             feature_vectors.append(list(features.values()))
             analyzed_games.append({
@@ -242,48 +309,93 @@ class SteamRecommendationSystem:
         # Converte para numpy array
         feature_matrix = np.array(feature_vectors)
         
-        # Normaliza as características contínuas (preço, positive_ratio, playtime, total_reviews, years_since_release)
-        continuous_indices = [0, 1, 2, 3, 17]  # Índices de preço, positive_ratio, total_reviews, years_since_release, playtime
+        # Normaliza as características contínuas
+        continuous_indices = [0, 1, 2, 3, 8]  # price, positive_ratio, total_reviews, years_since_release, playtime (índice corrigido)
         self.scaler.fit(feature_matrix[:, continuous_indices])
         feature_matrix[:, continuous_indices] = self.scaler.transform(feature_matrix[:, continuous_indices])
         
         # Calcula características médias do usuário
         user_avg_features = np.mean(feature_matrix, axis=0)
         
+        # Depuração: imprimir informações sobre o vetor do usuário
+        print("Dimensão do vetor do usuário:", user_avg_features.shape)
+        print("Primeiros 10 valores do vetor do usuário:", user_avg_features[:10])
+        
         # Armazena o perfil do usuário
         self.user_features_vector = user_avg_features
+        
+        # Calcula média de preços apenas de jogos pagos
+        avg_paid_price = np.mean(paid_games_prices) if paid_games_prices else 0
         
         # Cria perfil detalhado
         self.user_profile = {
             'steam_id': self.steam_id,
+            'user_name': self.user_name,
             'total_games_analyzed': len(analyzed_games),
-            'avg_features': {
-                'price': float(user_avg_features[0]),
-                'positive_ratio': float(user_avg_features[1]),
-                'total_reviews': float(user_avg_features[2]),
-                'years_since_release': float(user_avg_features[3]),
-                'supports_controller': float(user_avg_features[4]),
-                'is_multiplayer': float(user_avg_features[5]),
-                'is_singleplayer': float(user_avg_features[6]),
-                'is_coop': float(user_avg_features[7]),
-                'is_rpg': float(user_avg_features[8]),
-                'is_action': float(user_avg_features[9]),
-                'is_strategy': float(user_avg_features[10]),
-                'is_indie': float(user_avg_features[11]),
-                'is_adventure': float(user_avg_features[12]),
-                'is_sports': float(user_avg_features[13]),
-                'is_racing': float(user_avg_features[14]),
-                'is_simulation': float(user_avg_features[15]),
-                'is_casual': float(user_avg_features[16]),
-                'playtime': float(user_avg_features[17])
-            },
-            'top_games': analyzed_games[:10]
+            'avg_paid_price': avg_paid_price,  # Nova: média de preços sem jogos grátis
+            'avg_features': {}
         }
+        
+        # Adiciona características principais ao perfil
+        main_features = ['price', 'positive_ratio', 'total_reviews', 'years_since_release', 
+                        'supports_controller', 'is_multiplayer', 'is_singleplayer', 'is_coop', 'playtime']
+        for i, feature in enumerate(main_features):
+            self.user_profile['avg_features'][feature] = float(user_avg_features[i])
+        
+        # Adiciona preferências de gêneros principais
+        for genre in self.main_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            # Verifica se o gênero está presente nas características
+            if genre_key in features:
+                idx = list(features.keys()).index(genre_key)
+                self.user_profile['avg_features'][genre_key] = float(user_avg_features[idx])
+            else:
+                # Se não estiver, adiciona como 0
+                self.user_profile['avg_features'][genre_key] = 0.0
+        
+        # Adiciona preferências de gêneros adicionais
+        for genre in self.additional_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            # Verifica se o gênero está presente nas características
+            if genre_key in features:
+                idx = list(features.keys()).index(genre_key)
+                self.user_profile['avg_features'][genre_key] = float(user_avg_features[idx])
+            else:
+                # Se não estiver, adiciona como 0
+                self.user_profile['avg_features'][genre_key] = 0.0
+        
+        # Verifica se todas as características necessárias estão presentes
+        required_features = [
+            'price', 'positive_ratio', 'total_reviews', 'years_since_release',
+            'supports_controller', 'is_multiplayer', 'is_singleplayer', 'is_coop', 'playtime'
+        ]
+
+        for feature in required_features:
+            if feature not in self.user_profile['avg_features']:
+                print(f"Característica ausente no perfil: {feature}")
+                self.user_profile['avg_features'][feature] = 0.0
+
+        # Verifica gêneros principais
+        for genre in self.main_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key not in self.user_profile['avg_features']:
+                print(f"Gênero principal ausente no perfil: {genre}")
+                self.user_profile['avg_features'][genre_key] = 0.0
+
+        # Verifica gêneros adicionais
+        for genre in self.additional_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key not in self.user_profile['avg_features']:
+                print(f"Gênero adicional ausente no perfil: {genre}")
+                self.user_profile['avg_features'][genre_key] = 0.0
+        
+        self.user_profile['top_games'] = analyzed_games[:10]
         
         # Salva o perfil automaticamente
         self.save_profile()
         
         print(f"✓ Perfil construído com {len(analyzed_games)} jogos")
+        print(f"✓ Média de preço (jogos pagos): R${avg_paid_price:.2f}")
         return self.user_profile
     
     def search_games(self, query: str, limit: int = 20) -> List[Dict]:
@@ -328,7 +440,7 @@ class SteamRecommendationSystem:
                 
                 # TRATAMENTO MELHORADO DO PREÇO
                 price_info = details.get('price_overview', {})
-                price = price_info.get('final', 0) / 100.0  # Converte centavos para reais
+                price = price_info.get('final', 0) / 100.0
                 
                 # Se não tiver preço na detalhe, usa o da busca
                 if price == 0 and 'price' in game:
@@ -344,7 +456,6 @@ class SteamRecommendationSystem:
                 years_since_release = 0
                 if release_date:
                     try:
-                        # Tenta extrair o ano
                         year = int(release_date.split(',')[-1].strip())
                         current_year = datetime.datetime.now().year
                         years_since_release = current_year - year
@@ -354,35 +465,56 @@ class SteamRecommendationSystem:
                 # Suporte a controle
                 supports_controller = 1 if 'Full Controller Support' in categories else 0
                 
+                # Cria dicionário de características de gênero
+                genre_features = {}
+                for genre in self.all_genres:
+                    genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+                    genre_features[genre_key] = 1 if genre in genres else 0
+                
+                # Características principais
                 features = {
                     'price': price,
                     'positive_ratio': positive_ratio,
-                    'total_reviews': total,  # Número total de reviews (popularidade)
+                    'total_reviews': total,
                     'years_since_release': years_since_release,
                     'supports_controller': supports_controller,
                     'is_multiplayer': 1 if 'Multi-player' in categories else 0,
                     'is_singleplayer': 1 if 'Single-player' in categories else 0,
                     'is_coop': 1 if 'Co-op' in categories else 0,
-                    'is_rpg': 1 if 'RPG' in genres else 0,
-                    'is_action': 1 if 'Action' in genres else 0,
-                    'is_strategy': 1 if 'Strategy' in genres else 0,
-                    'is_indie': 1 if 'Indie' in genres else 0,
-                    'is_adventure': 1 if 'Adventure' in genres else 0,
-                    'is_sports': 1 if 'Sports' in genres else 0,
-                    'is_racing': 1 if 'Racing' in genres else 0,
-                    'is_simulation': 1 if 'Simulation' in genres else 0,
-                    'is_casual': 1 if 'Casual' in genres else 0,
-                    'playtime': 0  # Não disponível na busca
+                    'playtime': 0
                 }
+                
+                # Adiciona características de gênero
+                features.update(genre_features)
+                
+                # Garante que todas as características estejam presentes
+                all_feature_keys = [
+                    'price', 'positive_ratio', 'total_reviews', 'years_since_release',
+                    'supports_controller', 'is_multiplayer', 'is_singleplayer', 'is_coop', 'playtime'
+                ]
+                
+                # Adiciona chaves de gênero
+                for genre in self.all_genres:
+                    genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+                    all_feature_keys.append(genre_key)
+                
+                # Garante que todas as chaves existam no dicionário features
+                for key in all_feature_keys:
+                    if key not in features:
+                        features[key] = 0
                 
                 # Cria vetor de características normalizadas
                 feature_vector = list(features.values())
                 
                 # Normaliza as características contínuas usando o scaler do perfil do usuário
-                continuous_indices = [0, 1, 2, 3, 17]  # preço, positive_ratio, total_reviews, years_since_release, playtime
+                continuous_indices = [0, 1, 2, 3, 8]  # price, positive_ratio, total_reviews, years_since_release, playtime (índice corrigido)
                 feature_array = np.array(feature_vector).reshape(1, -1)
                 feature_array[:, continuous_indices] = self.scaler.transform(feature_array[:, continuous_indices])
                 feature_vector = feature_array.flatten().tolist()
+                
+                # Depuração: imprimir informações sobre o vetor do jogo
+                print(f"Dimensão do vetor do jogo {game['name']}: {np.array(feature_vector).shape}")
+                print(f"Primeiros 10 valores do vetor do jogo {game['name']}: {feature_vector[:10]}")
                 
                 analyzed_game = {
                     'id': app_id,
@@ -417,14 +549,27 @@ class SteamRecommendationSystem:
         Returns:
             List[Tuple[Dict, float]]: Lista de (jogo, similaridade) ordenada por similaridade
         """
-        if self.user_features_vector is None:
-            raise ValueError("Perfil do usuário não foi construído. Execute build_user_profile() primeiro.")
-        
         print("Calculando similaridades baseadas em conteúdo...")
         
         # Extrai vetores de características dos jogos
-        game_vectors = np.array([game['feature_vector'] for game in games])
+        game_vectors = []
+        for game in games:
+            if 'feature_vector' in game and len(game['feature_vector']) == len(self.user_features_vector):
+                game_vectors.append(game['feature_vector'])
+            else:
+                print(f"Vetor de características inválido para o jogo: {game.get('name', 'Desconhecido')}")
+        
+        if not game_vectors:
+            print("Nenhum vetor de características válido encontrado!")
+            return []
+        
+        game_vectors = np.array(game_vectors)
         user_vector = self.user_features_vector.reshape(1, -1)
+        
+        # Verifica dimensões
+        if user_vector.shape[1] != game_vectors.shape[1]:
+            print(f"Dimensões incompatíveis: usuário {user_vector.shape}, jogos {game_vectors.shape}")
+            return []
         
         # Calcula similaridade do cosseno
         similarities = cosine_similarity(user_vector, game_vectors)[0]
@@ -438,16 +583,13 @@ class SteamRecommendationSystem:
         print(f"✓ Similaridades calculadas para {len(games)} jogos")
         return game_similarities
     
-    def get_recommendations(self, search_queries: List[str], num_recommendations: int = 10, 
-                           max_per_genre: int = 3, exclude_owned: bool = True) -> List[Dict]:
+    def get_recommendations(self, search_queries: List[str], num_recommendations: int = 10) -> List[Dict]:
         """
-        Gera recomendações baseadas em múltiplas consultas de busca
+        Gera recomendações baseadas apenas no perfil geral do usuário
         
         Args:
             search_queries (List[str]): Lista de termos de busca
             num_recommendations (int): Número de recomendações a retornar
-            max_per_genre (int): Máximo de recomendações por gênero (para diversidade)
-            exclude_owned (bool): Se True, exclui jogos que o usuário já possui
             
         Returns:
             List[Dict]: Lista de recomendações ordenadas por relevância
@@ -455,16 +597,15 @@ class SteamRecommendationSystem:
         if self.user_profile is None:
             raise ValueError("Perfil do usuário não foi construído. Execute build_user_profile() primeiro.")
         
-        print(f"Gerando recomendações para {len(search_queries)} consultas...")
+        print(f"Gerando {num_recommendations} recomendações baseadas no perfil geral...")
         
+        # Busca jogos candidatos
         all_games = []
-        
-        # Busca e analisa jogos para cada consulta
         for query in search_queries:
             games = self.search_games(query, limit=20)
             all_games.extend(games)
         
-        # Remove duplicatas baseadas no ID do jogo
+        # Remove duplicatas
         unique_games = {}
         for game in all_games:
             if game['id'] not in unique_games:
@@ -473,33 +614,16 @@ class SteamRecommendationSystem:
         unique_games_list = list(unique_games.values())
         print(f"✓ Total de jogos únicos encontrados: {len(unique_games_list)}")
         
-        # Se for excluir jogos já possuídos
-        if exclude_owned:
-            filtered_games = [game for game in unique_games_list if game['id'] not in self.owned_games_ids]
-            print(f"✓ Jogos após filtrar os já possuídos: {len(filtered_games)}")
-        else:
-            filtered_games = unique_games_list
+        # Filtra jogos já possuídos
+        filtered_games = [game for game in unique_games_list if game['id'] not in self.owned_games_ids]
+        print(f"✓ Jogos após filtrar os já possuídos: {len(filtered_games)}")
         
         # Calcula similaridades
         game_similarities = self.calculate_content_based_similarity(filtered_games)
         
-        # Prepara recomendações finais com diversidade por gênero
+        # Prepara recomendações finais
         recommendations = []
-        genre_count = {}  # Contador por gênero
-        
-        for game, similarity in game_similarities:
-            # Verifica se já atingimos o limite para cada gênero
-            genres = game['genres']
-            skip = False
-            for genre in genres:
-                if genre_count.get(genre, 0) >= max_per_genre:
-                    skip = True
-                    break
-            
-            if skip:
-                continue
-                
-            # Adiciona a recomendação
+        for game, similarity in game_similarities[:num_recommendations]:
             recommendation = {
                 'rank': len(recommendations) + 1,
                 'similarity_score': float(similarity),
@@ -526,14 +650,6 @@ class SteamRecommendationSystem:
                 'recommendation_reason': self._generate_recommendation_reason(game, similarity)
             }
             recommendations.append(recommendation)
-            
-            # Atualiza contador de gêneros
-            for genre in genres:
-                genre_count[genre] = genre_count.get(genre, 0) + 1
-            
-            # Verifica se já temos o número desejado de recomendações
-            if len(recommendations) >= num_recommendations:
-                break
         
         print(f"✓ {len(recommendations)} recomendações geradas")
         return recommendations
@@ -563,21 +679,21 @@ class SteamRecommendationSystem:
             if features['is_singleplayer'] > 0.5:
                 reasons.append("modo singleplayer")
         
-        if abs(features['is_rpg'] - user_features['is_rpg']) < 0.3:
-            if features['is_rpg'] > 0.5:
-                reasons.append("gênero RPG")
+        # Analisa preferências de gêneros principais
+        for genre in self.main_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key in features and genre_key in user_features:
+                if abs(features[genre_key] - user_features[genre_key]) < 0.3:
+                    if features[genre_key] > 0.5:
+                        reasons.append(f"gênero {genre}")
         
-        if abs(features['is_action'] - user_features['is_action']) < 0.3:
-            if features['is_action'] > 0.5:
-                reasons.append("gênero Action")
-        
-        if abs(features['is_strategy'] - user_features['is_strategy']) < 0.3:
-            if features['is_strategy'] > 0.5:
-                reasons.append("gênero Strategy")
-        
-        if abs(features['is_indie'] - user_features['is_indie']) < 0.3:
-            if features['is_indie'] > 0.5:
-                reasons.append("jogo indie")
+        # Analisa preferências de gêneros adicionais
+        for genre in self.additional_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key in features and genre_key in user_features:
+                if abs(features[genre_key] - user_features[genre_key]) < 0.3:
+                    if features[genre_key] > 0.5:
+                        reasons.append(f"gênero {genre}")
         
         # Novas características
         if abs(features['supports_controller'] - user_features['supports_controller']) < 0.3:
@@ -596,15 +712,29 @@ class SteamRecommendationSystem:
         elif features['years_since_release'] > 5:
             reasons.append("clássico")
         
-        if reasons:
-            return f"Recomendado por ter características similares ao seu gosto: {', '.join(reasons)} (similaridade: {similarity:.2f})"
+        # Classificação da similaridade
+        if similarity >= 0.8:
+            similarity_class = "Excelente combinação"
+            explanation = "Este jogo combina perfeitamente com seu perfil!"
+        elif similarity >= 0.6:
+            similarity_class = "Boa combinação"
+            explanation = "Este jogo combina bem com suas preferências."
+        elif similarity >= 0.4:
+            similarity_class = "Combinação moderada"
+            explanation = "Este jogo tem algumas características que você gosta."
         else:
-            return f"Recomendado com base no seu perfil de jogos (similaridade: {similarity:.2f})"
+            similarity_class = "Combinação fraca"
+            explanation = "Este jogo é diferente do seu perfil, mas pode ser interessante para explorar novos gêneros."
+        
+        if reasons:
+            return f"{explanation} Características em comum: {', '.join(reasons)}. (similaridade: {similarity:.2f} - {similarity_class})"
+        else:
+            return f"{explanation} (similaridade: {similarity:.2f} - {similarity_class})"
     
     def save_profile(self, filename: str = "steam_profile.json"):
         """Salva o perfil do usuário em arquivo JSON"""
         if self.user_profile:
-            with open(filename, 'w', encoding='utf-8') as f:
+            with open(filename, 'w', encoding="utf-8") as f:
                 json.dump(self.user_profile, f, indent=2, ensure_ascii=False)
             print(f"✓ Perfil salvo em {filename}")
     
@@ -615,22 +745,31 @@ class SteamRecommendationSystem:
             return
         
         print("\n=== RESUMO DO PERFIL DO USUÁRIO ===")
-        print(f"Steam ID: {self.user_profile['steam_id']}")
+        print(f"Nome: {self.user_profile.get('user_name', 'Usuário Steam')}")
         print(f"Jogos analisados: {self.user_profile['total_games_analyzed']}")
         
         print("\nCaracterísticas médias do seu gosto:")
         features = self.user_profile['avg_features']
         print(f"  • Preço médio: R${features['price']:.2f}")
+        print(f"  • Preço médio (jogos pagos): R${self.user_profile.get('avg_paid_price', 0):.2f}")
         print(f"  • Avaliação positiva: {features['positive_ratio']:.2%}")
         print(f"  • Popularidade média: {features['total_reviews']:.0f} avaliações")
         print(f"  • Prefere jogos recentes: {'Sim' if features['years_since_release'] < 3 else 'Não'}")
         print(f"  • Prefere controle: {'Sim' if features['supports_controller'] > 0.5 else 'Não'}")
         print(f"  • Prefere multiplayer: {'Sim' if features['is_multiplayer'] > 0.5 else 'Não'}")
         print(f"  • Prefere singleplayer: {'Sim' if features['is_singleplayer'] > 0.5 else 'Não'}")
-        print(f"  • Gosta de RPG: {'Sim' if features['is_rpg'] > 0.5 else 'Não'}")
-        print(f"  • Gosta de Action: {'Sim' if features['is_action'] > 0.5 else 'Não'}")
-        print(f"  • Gosta de Strategy: {'Sim' if features['is_strategy'] > 0.5 else 'Não'}")
-        print(f"  • Gosta de Indie: {'Sim' if features['is_indie'] > 0.5 else 'Não'}")
+        
+        print("\nPreferências de Gêneros Principais:")
+        for genre in self.main_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key in features:
+                print(f"  • {genre}: {'Sim' if features[genre_key] > 0.5 else 'Não'}")
+        
+        print("\nPreferências de Gêneros Adicionais:")
+        for genre in self.additional_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key in features:
+                print(f"  • {genre}: {'Sim' if features[genre_key] > 0.5 else 'Não'}")
         
         print(f"\nTop 5 jogos mais jogados:")
         for i, game in enumerate(self.user_profile['top_games'][:5], 1):
@@ -655,7 +794,9 @@ def index():
     
     return render_template('index.html', 
                           profile=recommender.user_profile,
-                          recommendations=recommendations_data)
+                          recommendations=recommendations_data,
+                          main_genres=recommender.main_genres,
+                          additional_genres=recommender.additional_genres)
 
 @app.route('/api/recommendations')
 def api_recommendations():
@@ -671,8 +812,8 @@ def main():
     """Função principal para demonstrar o sistema de recomendação"""
     
     # Configurações (substitua pelos seus dados)
-    API_KEY = "x"  # Sua chave da API
-    STEAM_ID = "x"  # Seu Steam ID no formato 64 bits
+    API_KEY = "07D56861E698CE5D1022898E730D62A4"  # Sua chave da API
+    STEAM_ID = "76561198881909909"  # Seu Steam ID no formato 64 bits
     
     if API_KEY == "SUA_CHAVE_DA_API_STEAM" or STEAM_ID == "SEU_STEAM_ID":
         print("ERRO: Configure sua chave da API e Steam ID primeiro!")
@@ -691,11 +832,11 @@ def main():
         
         recommender = SteamRecommendationSystem(API_KEY, STEAM_ID)
         
-        # Constrói o perfil do usuário (forçando reconstrução para garantir dados atualizados)
+        # Constrói o perfil do usuário
         user_profile = recommender.build_user_profile(limit=50, force_rebuild=True)
         recommender.print_user_profile_summary()
         
-        # Gera recomendações baseadas em diferentes gêneros
+        # Gera recomendações baseadas no perfil geral
         search_queries = [
             "RPG",
             "Action",
@@ -705,12 +846,7 @@ def main():
         ]
         
         print(f"\nGerando recomendações baseadas em: {', '.join(search_queries)}")
-        recommendations_data = recommender.get_recommendations(
-            search_queries, 
-            num_recommendations=10,
-            max_per_genre=2,  # Máximo 2 jogos por gênero para diversidade
-            exclude_owned=True  # Exclui jogos já possuídos
-        )
+        recommendations_data = recommender.get_recommendations(search_queries, num_recommendations=10)
         
         # Exibe recomendações
         print("\n=== SUAS RECOMENDAÇÕES PERSONALIZADAS ===")
