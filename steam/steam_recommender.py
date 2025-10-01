@@ -1,3 +1,4 @@
+
 """
 Sistema de Recomendação Híbrido para Jogos - Versão Aprimorada
 Este módulo implementa um sistema de recomendação que combina filtragem colaborativa
@@ -6,6 +7,7 @@ e filtragem baseada em conteúdo usando dados da Steam.
 
 import requests
 import numpy as np
+from numpy import linalg as np_linalg
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MinMaxScaler
 import pandas as pd
@@ -74,7 +76,29 @@ class SteamRecommendationSystem:
             'Puzzle', 'Platformer', 'Shooter', 'Horror'
         ]
         
+    def get_friends_list(self) -> List[Dict]:
+        """Obtém a lista de amigos do usuário"""
+        url = f"{self.base_url}/ISteamUser/GetFriendList/v0001/"
+        params = {
+            'key': self.api_key,
+            'steamid': self.steam_id,
+            'relationship': 'friend'
+        }
+
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+
+            data = response.json()
+            friends = data.get('friendslist', {}).get('friends', [])
+            return friends
+
+        except Exception as e:
+            print(f"Erro ao obter lista de amigos: {e}")
+            return []
+
     def get_user_summary(self) -> Dict:
+
         """Obtém informações básicas do usuário"""
         url = f"{self.base_url}/ISteamUser/GetPlayerSummaries/v0002/"
         params = {
@@ -97,7 +121,7 @@ class SteamRecommendationSystem:
             print(f"Erro ao obter informações do usuário: {e}")
             return {}
     
-    def get_owned_games(self) -> List[Dict]:
+    def get_owned_games_for_id(self, steam_id: str) -> List[Dict]:
         """Obtém a biblioteca de jogos do usuário"""
         url = f"{self.base_url}/IPlayerService/GetOwnedGames/v0001/"
         params = {
@@ -120,15 +144,24 @@ class SteamRecommendationSystem:
             
         except requests.exceptions.HTTPError as http_err:
             if response.status_code == 401:
-                raise ValueError("Chave da API inválida ou expirada")
+                # Não levanta erro para amigos, apenas retorna vazio
+                return []
             elif response.status_code == 403:
-                raise ValueError("Acesso negado. Verifique se sua biblioteca de jogos está pública")
+                # Acesso negado, biblioteca privada, retorna vazio
+                return []
             elif response.status_code == 400:
                 raise ValueError("Requisição inválida. Verifique o formato do Steam ID")
             else:
-                raise ValueError(f"Erro HTTP: {http_err}")
+                print(f"Erro HTTP ao obter jogos para {steam_id}: {http_err}")
+                return []
         except Exception as err:
-            raise ValueError(f"Erro ao obter jogos: {err}")
+            print(f"Erro ao obter jogos para {steam_id}: {err}")
+            return []
+
+    def get_owned_games(self) -> List[Dict]:
+        """Obtém a biblioteca de jogos do usuário"""
+        return self.get_owned_games_for_id(self.steam_id)
+
     
     def get_app_details(self, app_id: int) -> Dict:
         """Obtém detalhes de um jogo específico"""
@@ -572,7 +605,16 @@ class SteamRecommendationSystem:
             return []
         
         # Calcula similaridade do cosseno
-        similarities = cosine_similarity(user_vector, game_vectors)[0]
+        # Adiciona uma pequena constante para evitar divisão por zero em vetores nulos
+        user_vector_norm = np_linalg.norm(user_vector)
+        game_vectors_norm = np_linalg.norm(game_vectors, axis=1)
+
+        if user_vector_norm == 0 or np.any(game_vectors_norm == 0):
+            print("Aviso: Vetor do usuário ou de algum jogo é nulo. Similaridade pode ser 0.")
+            # Retorna similaridade 0 para vetores nulos
+            similarities = np.zeros(game_vectors.shape[0])
+        else:
+            similarities = cosine_similarity(user_vector, game_vectors)[0]
         
         # Combina jogos com suas similaridades
         game_similarities = list(zip(games, similarities))
@@ -583,7 +625,77 @@ class SteamRecommendationSystem:
         print(f"✓ Similaridades calculadas para {len(games)} jogos")
         return game_similarities
     
-    def get_recommendations(self, search_queries: List[str], num_recommendations: int = 10) -> List[Dict]:
+    def get_collaborative_recommendations(self, num_friends: int = 5, num_games_per_friend: int = 10) -> List[Dict]:
+        """
+        Gera recomendações baseadas em filtragem colaborativa, encontrando jogos que amigos semelhantes possuem
+        e que o usuário principal ainda não tem.
+        """
+        print("Gerando recomendações colaborativas...")
+        similar_friends = self.get_similar_friends(num_friends=num_friends)
+        if not similar_friends:
+            print("Não foi possível encontrar amigos semelhantes para recomendações colaborativas.")
+            return []
+
+        friend_recommended_games = {}
+        for friend_data, similarity in similar_friends:
+            friend_steam_id = friend_data["steam_id"]
+            friend_name = friend_data["name"]
+            print(f"Analisando jogos do amigo {friend_name} (similaridade: {similarity:.2f})...")
+            
+            owned_games_by_friend = self.get_owned_games_for_id(friend_steam_id)
+            
+            # Filtra jogos que o usuário principal já possui
+            new_games_for_user = [game for game in owned_games_by_friend if game["appid"] not in self.owned_games_ids]
+            
+            # Ordena os jogos do amigo por tempo de jogo (mais jogados primeiro)
+            sorted_friend_games = sorted(new_games_for_user, key=lambda x: x.get("playtime_forever", 0), reverse=True)
+            
+            for game in sorted_friend_games[:num_games_per_friend]:
+                app_id = game["appid"]
+                if app_id not in friend_recommended_games:
+                    friend_recommended_games[app_id] = {
+                        "game_info": {"name": game["name"], "appid": app_id},
+                        "friends_who_own": [],
+                        "total_playtime_by_friends": 0,
+                        "avg_friend_similarity": 0
+                    }
+                friend_recommended_games[app_id]["friends_who_own"].append({"name": friend_name, "similarity": similarity})
+                friend_recommended_games[app_id]["total_playtime_by_friends"] += game.get("playtime_forever", 0)
+                
+        # Calcula a média de similaridade dos amigos que possuem o jogo
+        for app_id, data in friend_recommended_games.items():
+            total_similarity = sum([f["similarity"] for f in data["friends_who_own"]])
+            data["avg_friend_similarity"] = total_similarity / len(data["friends_who_own"])
+
+        # Converte para lista e ordena por uma combinação de fatores (ex: avg_friend_similarity e total_playtime_by_friends)
+        collaborative_recommendations = list(friend_recommended_games.values())
+        collaborative_recommendations.sort(key=lambda x: (x["avg_friend_similarity"], x["total_playtime_by_friends"]), reverse=True)
+        
+        # Adiciona detalhes completos dos jogos recomendados
+        final_collaborative_recs = []
+        for rec in collaborative_recommendations:
+            app_id = rec["game_info"]["appid"]
+            details = self.get_app_details(app_id)
+            if details:
+                genres = [g["description"] for g in details.get("genres", [])]
+                categories = [c["description"] for c in details.get("categories", [])]
+                price_info = details.get("price_overview", {})
+                price = price_info.get("final", 0) / 100.0
+                
+                rec["game_info"]["price"] = price
+                rec["game_info"]["genres"] = genres
+                rec["game_info"]["categories"] = categories
+                rec["game_info"]["url"] = f"https://store.steampowered.com/app/{app_id}"
+                rec["game_info"]["thumbnail"] = details.get("header_image", "")
+                final_collaborative_recs.append(rec)
+            time.sleep(0.1)
+
+        print(f"✓ {len(final_collaborative_recs)} recomendações colaborativas geradas.")
+        return final_collaborative_recs
+
+    def get_recommendations(self, search_queries: List[str], num_recommendations: int = 10, 
+                            content_weight: float = 0.7, collaborative_weight: float = 0.3) -> List[Dict]:
+
         """
         Gera recomendações baseadas apenas no perfil geral do usuário
         
@@ -731,7 +843,75 @@ class SteamRecommendationSystem:
         else:
             return f"{explanation} (similaridade: {similarity:.2f} - {similarity_class})"
     
+    def get_similar_friends(self, num_friends: int = 5) -> List[Tuple[Dict, float]]:
+        """
+        Encontra amigos com perfis de gosto semelhantes ao do usuário principal.
+        """
+        print(f"Buscando {num_friends} amigos com perfis semelhantes...")
+        friends_list = self.get_friends_list()
+        if not friends_list:
+            print("Nenhum amigo encontrado ou lista de amigos privada.")
+            return []
+
+        friend_profiles = []
+        for friend in friends_list:
+            friend_steam_id = friend["steamid"]
+            # Evita construir perfil para o próprio usuário se ele estiver na lista de amigos (improvável, mas para segurança)
+            if friend_steam_id == self.steam_id:
+                continue
+            
+            # Obtém o nome do amigo
+            friend_summary = self.get_user_summary_for_id(friend_steam_id)
+            friend_name = friend_summary.get("personaname", f"Amigo {friend_steam_id}")
+
+            profile = self.build_profile_for_id(friend_steam_id)
+            if profile:
+                friend_profiles.append({"steam_id": friend_steam_id, "name": friend_name, "profile": profile})
+            time.sleep(0.1) # Respeitar limites da API
+
+        if not friend_profiles:
+            print("Não foi possível construir perfis para amigos.")
+            return []
+
+        user_vector = self.user_features_vector.reshape(1, -1)
+        similar_friends = []
+
+        for friend_data in friend_profiles:
+            friend_vector = np.array(friend_data["profile"]["feature_vector"]).reshape(1, -1)
+            
+            # Garante que os vetores têm a mesma dimensão antes de calcular a similaridade
+            if user_vector.shape[1] != friend_vector.shape[1]:
+                print(f"Aviso: Dimensões de vetor incompatíveis para o amigo {friend_data['name']}. Ignorando.")
+                continue
+
+            similarity = cosine_similarity(user_vector, friend_vector)[0][0]
+            similar_friends.append((friend_data, similarity))
+
+        similar_friends.sort(key=lambda x: x[1], reverse=True)
+        print(f"✓ Encontrados {len(similar_friends)} amigos com perfis semelhantes.")
+        return similar_friends[:num_friends]
+
+    def get_user_summary_for_id(self, steam_id: str) -> Dict:
+        """Obtém informações básicas de um usuário específico"""
+        url = f"{self.base_url}/ISteamUser/GetPlayerSummaries/v0002/"
+        params = {
+            'key': self.api_key,
+            'steamids': steam_id
+        }
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            players = data.get('response', {}).get('players', [])
+            if players:
+                return players[0]
+            return {}
+        except Exception as e:
+            print(f"Erro ao obter informações do usuário {steam_id}: {e}")
+            return {}
+
     def save_profile(self, filename: str = "steam_profile.json"):
+
         """Salva o perfil do usuário em arquivo JSON"""
         if self.user_profile:
             with open(filename, 'w', encoding="utf-8") as f:
@@ -812,8 +992,8 @@ def main():
     """Função principal para demonstrar o sistema de recomendação"""
     
     # Configurações (substitua pelos seus dados)
-    API_KEY = "07D56861E698CE5D1022898E730D62A4"  # Sua chave da API
-    STEAM_ID = "76561198881909909"  # Seu Steam ID no formato 64 bits
+    API_KEY = "x"  # Sua chave da API
+    STEAM_ID = "x"  # Seu Steam ID no formato 64 bits
     
     if API_KEY == "SUA_CHAVE_DA_API_STEAM" or STEAM_ID == "SEU_STEAM_ID":
         print("ERRO: Configure sua chave da API e Steam ID primeiro!")
