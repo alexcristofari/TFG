@@ -1,0 +1,190 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Recomendação de Filmes - TMDb</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #0d0221 0%, #1a0b2e 50%, #16213e 100%);
+            color: #e0e0e0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+        .card {
+            background-color: #1e1e2f;
+            border: 1px solid #ff6b6b;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .card-header {
+            background: linear-gradient(90deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: #ffffff;
+            font-weight: bold;
+        }
+        .movie-card {
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .movie-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 8px 16px rgba(255, 107, 107, 0.4);
+        }
+        .movie-poster {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            border-radius: 5px;
+        }
+        .badge {
+            font-size: 0.8em;
+        }
+        .recommendation-reason {
+            font-style: italic;
+            color: #ffd93d;
+        }
+        .profile-section {
+            background-color: #16213e;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border: 1px solid #ff6b6b;
+        }
+        .feature-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 2px;
+            background-color: #2a2d3a;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .yes {
+            color: #4ecca3;
+        }
+        .no {
+            color: #e0e0e0;
+        }
+        .section-title {
+            color: #ff6b6b;
+            border-bottom: 2px solid #ff6b6b;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .genre-section {
+            margin-top: 20px;
+        }
+        .genre-title {
+            color: #ffd93d;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <header class="text-center mb-4">
+            <h1 class="display-4">Sistema de Recomendação de Filmes</h1>
+            <p class="lead">Baseado no seu perfil de filmes curtidos</p>
+        </header>
+        
+        <div class="profile-section">
+            <h2 class="section-title">Seu Perfil de Filmes</h2>
+            <div class="row">
+                <div class="col-md-6">
+                    <h4>Informações Gerais</h4>
+                    <p><strong>Filmes analisados:</strong> {{ profile.total_movies_analyzed }}</p>
+                    
+                    <h4>Características Médias</h4>
+                    <p><strong>Avaliação média:</strong> {{ "%.1f"|format(profile.avg_features.vote_average * 10) }}/10</p>
+                    <p><strong>Popularidade média:</strong> {{ "%.0f"|format(profile.avg_features.vote_count) }} votos</p>
+                    <p><strong>Anos desde lançamento médio:</strong> {{ "%.0f"|format(profile.avg_features.years_since_release) }} anos</p>
+                    <p><strong>Duração média:</strong> {{ "%.0f"|format(profile.avg_features.runtime) }} minutos</p>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="genre-section">
+                        <h4 class="genre-title">Preferências de Gêneros</h4>
+                        <div>
+                            {% for genre in all_genres %}
+                                {% set genre_key = 'genre_' + genre.lower().replace(' ', '_') %}
+                                {% if genre_key in profile.avg_features %}
+                                    <span class="feature-badge {% if profile.avg_features[genre_key] > 0.5 %}yes{% else %}no{% endif %}">
+                                        {{ genre }}: {% if profile.avg_features[genre_key] > 0.5 %}Sim{% else %}Não{% endif %}
+                                    </span>
+                                {% else %}
+                                    <span class="feature-badge no">{{ genre }}: Não</span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <h2 class="section-title">Suas Recomendações Personalizadas de Filmes</h2>
+                <div class="row">
+                    {% for rec in recommendations %}
+                        <div class="col-md-4 mb-4">
+                            <div class="card movie-card h-100">
+                                <div class="card-header">
+                                    #{{ rec.rank }} - {{ rec.movie_info.title }}
+                                </div>
+                                <div class="card-body">
+                                    {% if rec.movie_info.poster_path %}
+                                        <img src="{{ rec.movie_info.poster_path }}" alt="{{ rec.movie_info.title }}" class="movie-poster mb-3">
+                                    {% endif %}
+                                    
+                                    <p><strong>Data de Lançamento:</strong> {{ rec.movie_info.release_date }}</p>
+                                    
+                                    <p><strong>Avaliação:</strong> 
+                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.movie_info.vote_average) }}/10</span>
+                                    </p>
+                                    
+                                    <p><strong>Gêneros:</strong></p>
+                                    <div>
+                                        {% for genre in rec.movie_info.genres %}
+                                            <span class="badge bg-primary">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <p class="mt-3"><strong>Sinopse:</strong></p>
+                                    <p style="font-size: 0.9em;">{{ rec.movie_info.overview[:150] }}{% if rec.movie_info.overview|length > 150 %}...{% endif %}</p>
+                                    
+                                    <p class="mt-3 recommendation-reason">
+                                        {{ rec.recommendation_reason }}
+                                    </p>
+                                    
+                                    <div class="mt-3">
+                                        <a href="{{ rec.movie_info.url }}" target="_blank" class="btn btn-danger btn-sm">
+                                            Ver no TMDb
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <small>Similaridade: 
+                                        {% if rec.similarity_score >= 0.8 %}
+                                            <span class="badge bg-success">{{ "%.2f"|format(rec.similarity_score) }} - Excelente</span>
+                                        {% elif rec.similarity_score >= 0.6 %}
+                                            <span class="badge bg-primary">{{ "%.2f"|format(rec.similarity_score) }} - Boa</span>
+                                        {% elif rec.similarity_score >= 0.4 %}
+                                            <span class="badge bg-warning text-dark">{{ "%.2f"|format(rec.similarity_score) }} - Moderada</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ "%.2f"|format(rec.similarity_score) }} - Fraca</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+Recomendação de Filmes com Filtragem Colaborativa e Híbrida - Manus
