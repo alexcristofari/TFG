@@ -122,43 +122,46 @@
             </div>
         </div>
         
-        <div class="row">
+        <!-- Seção: Recomendações Normais (Alta Similaridade) -->
+        {% if recommendations.normal %}
+        <div class="row mb-5">
             <div class="col-12">
-                <h2 class="section-title">Suas Recomendações Personalizadas de Filmes</h2>
+                <h2 class="section-title">🎯 Recomendações Principais (Alta Similaridade)</h2>
+                <p class="text-muted">Filmes que combinam perfeitamente com o seu perfil de gostos.</p>
                 <div class="row">
-                    {% for rec in recommendations %}
-                        <div class="col-md-4 mb-4">
+                    {% for rec in recommendations.normal %}
+                        <div class="col-md-3 mb-4">
                             <div class="card movie-card h-100">
                                 <div class="card-header">
-                                    #{{ rec.rank }} - {{ rec.movie_info.title }}
+                                    #{{ rec.rank }} - {{ rec.title }}
                                 </div>
                                 <div class="card-body">
-                                    {% if rec.movie_info.poster_path %}
-                                        <img src="{{ rec.movie_info.poster_path }}" alt="{{ rec.movie_info.title }}" class="movie-poster mb-3">
+                                    {% if rec.poster_path %}
+                                        <img src="{{ rec.poster_path }}" alt="{{ rec.title }}" class="movie-poster mb-3">
                                     {% endif %}
                                     
-                                    <p><strong>Data de Lançamento:</strong> {{ rec.movie_info.release_date }}</p>
+                                    <p style="color: #e0e0e0;"><strong>Data de Lançamento:</strong> {{ rec.release_date }}</p>
                                     
-                                    <p><strong>Avaliação:</strong> 
-                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.movie_info.vote_average) }}/10</span>
+                                    <p style="color: #e0e0e0;"><strong>Avaliação:</strong> 
+                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.vote_average) }}/10</span>
                                     </p>
                                     
-                                    <p><strong>Gêneros:</strong></p>
+                                    <p style="color: #e0e0e0;"><strong>Gêneros:</strong></p>
                                     <div>
-                                        {% for genre in rec.movie_info.genres %}
+                                        {% for genre in rec.genres %}
                                             <span class="badge bg-primary">{{ genre }}</span>
                                         {% endfor %}
                                     </div>
                                     
-                                    <p class="mt-3"><strong>Sinopse:</strong></p>
-                                    <p style="font-size: 0.9em;">{{ rec.movie_info.overview[:150] }}{% if rec.movie_info.overview|length > 150 %}...{% endif %}</p>
+                                    <p class="mt-3" style="color: #e0e0e0;"><strong>Sinopse:</strong></p>
+                                    <p style="font-size: 0.9em; color: #c0c0c0;">{{ rec.overview[:150] }}{% if rec.overview|length > 150 %}...{% endif %}</p>
                                     
                                     <p class="mt-3 recommendation-reason">
                                         {{ rec.recommendation_reason }}
                                     </p>
                                     
                                     <div class="mt-3">
-                                        <a href="{{ rec.movie_info.url }}" target="_blank" class="btn btn-danger btn-sm">
+                                        <a href="{{ rec.url }}" target="_blank" class="btn btn-danger btn-sm">
                                             Ver no TMDb
                                         </a>
                                     </div>
@@ -182,6 +185,202 @@
                 </div>
             </div>
         </div>
+        {% endif %}
+
+        <!-- Seção: Filmes Recentes -->
+        {% if recommendations.recent %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <h2 class="section-title">🆕 Lançamentos Recentes</h2>
+                <p class="text-muted">Filmes lançados no último ano que podem te interessar.</p>
+                <div class="row">
+                    {% for rec in recommendations.recent %}
+                        <div class="col-md-6 mb-4">
+                            <div class="card movie-card h-100">
+                                <div class="card-header">
+                                    #{{ rec.rank }} - {{ rec.title }}
+                                </div>
+                                <div class="card-body">
+                                    {% if rec.poster_path %}
+                                        <img src="{{ rec.poster_path }}" alt="{{ rec.title }}" class="movie-poster mb-3">
+                                    {% endif %}
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Data de Lançamento:</strong> {{ rec.release_date }}</p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Avaliação:</strong> 
+                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.vote_average) }}/10</span>
+                                    </p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Gêneros:</strong></p>
+                                    <div>
+                                        {% for genre in rec.genres %}
+                                            <span class="badge bg-primary">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <p class="mt-3" style="color: #e0e0e0;"><strong>Sinopse:</strong></p>
+                                    <p style="font-size: 0.9em; color: #c0c0c0;">{{ rec.overview[:150] }}{% if rec.overview|length > 150 %}...{% endif %}</p>
+                                    
+                                    <p class="mt-3 recommendation-reason">
+                                        {{ rec.recommendation_reason }}
+                                    </p>
+                                    
+                                    <div class="mt-3">
+                                        <a href="{{ rec.url }}" target="_blank" class="btn btn-danger btn-sm">
+                                            Ver no TMDb
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <small>Similaridade: 
+                                        {% if rec.similarity_score >= 0.8 %}
+                                            <span class="badge bg-success">{{ "%.2f"|format(rec.similarity_score) }} - Excelente</span>
+                                        {% elif rec.similarity_score >= 0.6 %}
+                                            <span class="badge bg-primary">{{ "%.2f"|format(rec.similarity_score) }} - Boa</span>
+                                        {% elif rec.similarity_score >= 0.4 %}
+                                            <span class="badge bg-warning text-dark">{{ "%.2f"|format(rec.similarity_score) }} - Moderada</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ "%.2f"|format(rec.similarity_score) }} - Fraca</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Seção: Filmes Clássicos -->
+        {% if recommendations.classic %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <h2 class="section-title">🎬 Clássicos Relacionados</h2>
+                <p class="text-muted">Filmes clássicos que combinam com seus gêneros favoritos.</p>
+                <div class="row">
+                    {% for rec in recommendations.classic %}
+                        <div class="col-md-6 mb-4">
+                            <div class="card movie-card h-100">
+                                <div class="card-header">
+                                    #{{ rec.rank }} - {{ rec.title }}
+                                </div>
+                                <div class="card-body">
+                                    {% if rec.poster_path %}
+                                        <img src="{{ rec.poster_path }}" alt="{{ rec.title }}" class="movie-poster mb-3">
+                                    {% endif %}
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Data de Lançamento:</strong> {{ rec.release_date }}</p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Avaliação:</strong> 
+                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.vote_average) }}/10</span>
+                                    </p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Gêneros:</strong></p>
+                                    <div>
+                                        {% for genre in rec.genres %}
+                                            <span class="badge bg-primary">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <p class="mt-3" style="color: #e0e0e0;"><strong>Sinopse:</strong></p>
+                                    <p style="font-size: 0.9em; color: #c0c0c0;">{{ rec.overview[:150] }}{% if rec.overview|length > 150 %}...{% endif %}</p>
+                                    
+                                    <p class="mt-3 recommendation-reason">
+                                        {{ rec.recommendation_reason }}
+                                    </p>
+                                    
+                                    <div class="mt-3">
+                                        <a href="{{ rec.url }}" target="_blank" class="btn btn-danger btn-sm">
+                                            Ver no TMDb
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <small>Similaridade: 
+                                        {% if rec.similarity_score >= 0.8 %}
+                                            <span class="badge bg-success">{{ "%.2f"|format(rec.similarity_score) }} - Excelente</span>
+                                        {% elif rec.similarity_score >= 0.6 %}
+                                            <span class="badge bg-primary">{{ "%.2f"|format(rec.similarity_score) }} - Boa</span>
+                                        {% elif rec.similarity_score >= 0.4 %}
+                                            <span class="badge bg-warning text-dark">{{ "%.2f"|format(rec.similarity_score) }} - Moderada</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ "%.2f"|format(rec.similarity_score) }} - Fraca</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Seção: Gêneros Diversos -->
+        {% if recommendations.diverse_genres %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <h2 class="section-title">🌟 Explore Novos Gêneros</h2>
+                <p class="text-muted">Filmes de alta qualidade fora dos seus gêneros habituais para expandir seus horizontes.</p>
+                <div class="row">
+                    {% for rec in recommendations.diverse_genres %}
+                        <div class="col-md-6 mb-4">
+                            <div class="card movie-card h-100">
+                                <div class="card-header">
+                                    #{{ rec.rank }} - {{ rec.title }}
+                                </div>
+                                <div class="card-body">
+                                    {% if rec.poster_path %}
+                                        <img src="{{ rec.poster_path }}" alt="{{ rec.title }}" class="movie-poster mb-3">
+                                    {% endif %}
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Data de Lançamento:</strong> {{ rec.release_date }}</p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Avaliação:</strong> 
+                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.vote_average) }}/10</span>
+                                    </p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Gêneros:</strong></p>
+                                    <div>
+                                        {% for genre in rec.genres %}
+                                            <span class="badge bg-primary">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <p class="mt-3" style="color: #e0e0e0;"><strong>Sinopse:</strong></p>
+                                    <p style="font-size: 0.9em; color: #c0c0c0;">{{ rec.overview[:150] }}{% if rec.overview|length > 150 %}...{% endif %}</p>
+                                    
+                                    <p class="mt-3 recommendation-reason">
+                                        {{ rec.recommendation_reason }}
+                                    </p>
+                                    
+                                    <div class="mt-3">
+                                        <a href="{{ rec.url }}" target="_blank" class="btn btn-danger btn-sm">
+                                            Ver no TMDb
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <small>Similaridade: 
+                                        {% if rec.similarity_score >= 0.8 %}
+                                            <span class="badge bg-success">{{ "%.2f"|format(rec.similarity_score) }} - Excelente</span>
+                                        {% elif rec.similarity_score >= 0.6 %}
+                                            <span class="badge bg-primary">{{ "%.2f"|format(rec.similarity_score) }} - Boa</span>
+                                        {% elif rec.similarity_score >= 0.4 %}
+                                            <span class="badge bg-warning text-dark">{{ "%.2f"|format(rec.similarity_score) }} - Moderada</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ "%.2f"|format(rec.similarity_score) }} - Fraca</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
