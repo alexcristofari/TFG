@@ -207,76 +207,171 @@ class MovieRecommendationSystem:
         print(f"✓ Similaridades calculadas para {len(valid_movies)} filmes.")
         return movie_similarities
 
-    def get_recommendations(self, liked_movie_ids: List[int], search_queries: List[str], num_recommendations: int = 10) -> List[Dict]:
+    def get_recommendations(self, liked_movie_ids: List[int], search_queries: List[str], num_recommendations: int = 10) -> Dict[str, List[Dict]]:
         self.build_user_profile(liked_movie_ids, force_rebuild=True)
 
         all_candidate_movies = []
-        processed_movie_ids = set()
+        processed_movie_ids = set(liked_movie_ids)
 
-        # 1. Adicionar filmes populares (para diversidade e filmes atuais)
-        for page in range(1, 3): # Buscar de 2 páginas de populares
-            popular_movies = self._make_api_request("movie/popular", {"page": page})
-            if popular_movies and "results" in popular_movies:
-                for movie in popular_movies["results"]:
-                    if movie["id"] not in processed_movie_ids:
-                        all_candidate_movies.append(movie)
-                        processed_movie_ids.add(movie["id"])
+        # Funções auxiliares para buscar filmes
+        def fetch_movies(endpoint, params=None, limit_pages=2):
+            movies = []
+            for page in range(1, limit_pages + 1):
+                data = self._make_api_request(endpoint, {"page": page, **(params if params else {})})
+                if data and "results" in data:
+                    for movie in data["results"]:
+                        if movie["id"] not in processed_movie_ids:
+                            movies.append(movie)
+                            processed_movie_ids.add(movie["id"])
+            return movies
 
-        # 2. Adicionar filmes bem avaliados (para qualidade e clássicos)
-        for page in range(1, 3): # Buscar de 2 páginas de bem avaliados
-            top_rated_movies = self._make_api_request("movie/top_rated", {"page": page})
-            if top_rated_movies and "results" in top_rated_movies:
-                for movie in top_rated_movies["results"]:
-                    if movie["id"] not in processed_movie_ids:
-                        all_candidate_movies.append(movie)
-                        processed_movie_ids.add(movie["id"])
+        # 1. Filmes Populares e Bem Avaliados (base para todas as categorias)
+        popular_and_top_rated = []
+        popular_and_top_rated.extend(fetch_movies("movie/popular", limit_pages=5))
+        popular_and_top_rated.extend(fetch_movies("movie/top_rated", limit_pages=5))
 
-        # 3. Adicionar filmes baseados em queries de busca (para cobrir interesses específicos)
+        # 2. Filmes baseados em queries de busca (para cobrir interesses específicos)
+        query_based_movies = []
         for query in search_queries:
             movies = self.search_movies(query, limit=10) # Limitar a 10 por query para não sobrecarregar
             for movie in movies:
                 if movie["id"] not in processed_movie_ids:
-                    all_candidate_movies.append(movie)
-             # Remover duplicatas e filmes já curtidos da lista final de candidatos
-        final_candidate_movies = []
+                    query_based_movies.append(movie)
+                    processed_movie_ids.add(movie["id"])
+        
+        all_candidate_movies.extend(popular_and_top_rated)
+        all_candidate_movies.extend(query_based_movies)
+
+        # Remove duplicatas e filmes já curtidos da lista final de candidatos
+        unique_candidate_movies_list = []
+        seen_ids = set()
         for movie in all_candidate_movies:
-            if movie["id"] not in liked_movie_ids and movie["id"] not in processed_movie_ids:
-                final_candidate_movies.append(movie)
-                processed_movie_ids.add(movie["id"]) # Adicionar ao set para evitar duplicatas na lista final
-        
-        # Garantir que processed_movie_ids inclua todos os filmes já processados para evitar re-adição
-        # (já feito nos loops anteriores, mas reforçando a lógica)
-        
-        # A lista de candidatos para cálculo de similaridade será final_candidate_movies
-        unique_candidate_movies_list = final_candidate_movies     
+            if movie["id"] not in seen_ids and movie["id"] not in liked_movie_ids:
+                unique_candidate_movies_list.append(movie)
+                seen_ids.add(movie["id"])
 
-        print(f"✓ Total de filmes candidatos únicos: {len(unique_candidate_movies_list)}")
+        print(f"✓ Total de filmes candidatos únicos para análise: {len(unique_candidate_movies_list)}")
 
+        # Calcular similaridades para todos os candidatos
         movie_similarities = self.calculate_content_based_similarity(unique_candidate_movies_list)
-
-        recommendations = []
-        for movie, similarity in movie_similarities[:num_recommendations]:
-            details = self.get_movie_details(movie["id"])
-            if details:
-                recommendation = {
-                    "rank": len(recommendations) + 1,
-                    "similarity_score": float(similarity),
-                    "movie_info": {
-                        "id": movie["id"],
-                        "title": details.get("title"),
-                        "overview": details.get("overview"),
-                        "poster_path": f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else None,
-                        "release_date": details.get("release_date"),
-                        "genres": [g["name"] for g in details.get("genres", [])],
-                        "vote_average": details.get("vote_average"),
-                        "url": f"https://www.themoviedb.org/movie/{movie['id']}"
-                    },
-                    "recommendation_reason": self._generate_recommendation_reason(details, similarity)
-                }
-                recommendations.append(recommendation)
         
-        print(f"✓ {len(recommendations)} recomendações de filmes geradas.")
-        return recommendations
+        # Mapear similaridades por ID para fácil acesso
+        similarities_map = {movie["id"]: sim for movie, sim in movie_similarities}
+        movies_map = {movie["id"]: movie for movie, sim in movie_similarities}
+
+        # Categorias de recomendações
+        recent_recs = []
+        classic_recs = []
+        diverse_genre_recs = []
+        normal_recs = []
+
+        current_year = datetime.datetime.now().year
+        user_genre_preferences = self.user_profile["genre_preferences"]
+        preferred_genres = [genre for genre, score in user_genre_preferences.items() if score > 0.5] # Gêneros com preferência forte
+        
+        # Priorizar filmes com similaridade mais alta para preencher os slots
+        sorted_by_similarity = sorted(movie_similarities, key=lambda x: x[1], reverse=True)
+
+        for movie, similarity in sorted_by_similarity:
+            details = self.get_movie_details(movie["id"])
+            if not details: continue
+
+            release_date_str = details.get("release_date", "")
+            release_year = int(release_date_str.split("-")[0]) if release_date_str else 0
+            movie_genres = [g["name"] for g in details.get("genres", [])]
+            vote_average = details.get("vote_average", 0.0)
+
+            rec_data = {
+                "id": movie["id"],
+                "title": details.get("title"),
+                "overview": details.get("overview"),
+                "poster_path": f"https://image.tmdb.org/t/p/w500{details.get("poster_path")}" if details.get("poster_path") else None,
+                "release_date": details.get("release_date"),
+                "genres": movie_genres,
+                "vote_average": vote_average,
+                "url": f"https://www.themoviedb.org/movie/{movie["id"]}",
+                "similarity_score": float(similarity),
+                "recommendation_reason": self._generate_recommendation_reason(details, similarity)
+            }
+
+            # Tenta preencher slots
+            # 1. Filmes Recentes (até 1 ano)
+            if len(recent_recs) < 2 and (current_year - release_year) <= 1:
+                recent_recs.append(rec_data)
+                continue
+
+            # 2. Filmes Clássicos Antigos (relacionados aos gêneros de interesse)
+            if len(classic_recs) < 2 and (current_year - release_year) >= 20: # Mais de 20 anos como clássico
+                # Verifica se tem pelo menos um gênero preferido
+                if any(g in preferred_genres for g in movie_genres):
+                    classic_recs.append(rec_data)
+                    continue
+            
+            # 3. Gêneros Diferentes (com nota alta no TMDb)
+            if len(diverse_genre_recs) < 2 and vote_average >= 7.5: # Nota alta
+                # Verifica se o filme não tem nenhum dos gêneros preferidos
+                if not any(g in preferred_genres for g in movie_genres):
+                    diverse_genre_recs.append(rec_data)
+                    continue
+
+            # 4. Recomendações Normais (alta similaridade)
+            if len(normal_recs) < 4:
+                normal_recs.append(rec_data)
+                continue
+        
+        # Se ainda faltarem slots, preenche com as melhores similaridades restantes
+        all_categorized_ids = set([r["id"] for r in recent_recs + classic_recs + diverse_genre_recs + normal_recs])
+        remaining_recs = [rec_data for movie, sim in sorted_by_similarity 
+                          if movie["id"] not in all_categorized_ids
+                          and (rec_data := {
+                                "id": movie["id"],
+                                "title": self.get_movie_details(movie["id"]).get("title"),
+                                "overview": self.get_movie_details(movie["id"]).get("overview"),
+                                "poster_path": f"https://image.tmdb.org/t/p/w500{self.get_movie_details(movie["id"]).get("poster_path")}" if self.get_movie_details(movie["id"]).get("poster_path") else None,
+                                "release_date": self.get_movie_details(movie["id"]).get("release_date"),
+                                "genres": [g["name"] for g in self.get_movie_details(movie["id"]).get("genres", [])],
+                                "vote_average": self.get_movie_details(movie["id"]).get("vote_average"),
+                                "url": f"https://www.themoviedb.org/movie/{movie["id"]}",
+                                "similarity_score": float(sim),
+                                "recommendation_reason": self._generate_recommendation_reason(self.get_movie_details(movie["id"]), sim)
+                            }) is not None
+                         ]
+
+        # Preenche os slots restantes de 'normal_recs' com os melhores filmes restantes
+        while len(normal_recs) < 4 and remaining_recs:
+            normal_recs.append(remaining_recs.pop(0))
+
+        # Preenche os slots restantes de outras categorias, se houver espaço e filmes restantes
+        while len(recent_recs) < 2 and remaining_recs:
+            recent_recs.append(remaining_recs.pop(0))
+        while len(classic_recs) < 2 and remaining_recs:
+            classic_recs.append(remaining_recs.pop(0))
+        while len(diverse_genre_recs) < 2 and remaining_recs:
+            diverse_genre_recs.append(remaining_recs.pop(0))
+
+        # Adiciona qualquer filme restante aos normal_recs até o limite total, se houver
+        while len(normal_recs) < num_recommendations - len(recent_recs) - len(classic_recs) - len(diverse_genre_recs) and remaining_recs:
+            normal_recs.append(remaining_recs.pop(0))
+
+        # Atribui ranks e garante que o total não exceda num_recommendations
+        final_recommendations = {
+            "recent": recent_recs[:2],
+            "classic": classic_recs[:2],
+            "diverse_genres": diverse_genre_recs[:2],
+            "normal": normal_recs[:4]
+        }
+
+        # Atribui ranks dentro de cada categoria
+        for category, rec_list in final_recommendations.items():
+            for i, rec in enumerate(rec_list):
+                rec["rank"] = i + 1
+
+        print(f"✓ {len(final_recommendations['recent'])} recomendações recentes geradas.")
+        print(f"✓ {len(final_recommendations['classic'])} recomendações clássicas geradas.")
+        print(f"✓ {len(final_recommendations['diverse_genres'])} recomendações de gêneros diversos geradas.")
+        print(f"✓ {len(final_recommendations['normal'])} recomendações normais geradas.")
+
+        return final_recommendations
 
     def _generate_recommendation_reason(self, movie_details: Dict, similarity: float) -> str:
         user_features = self.user_profile["avg_features"]
@@ -384,6 +479,7 @@ def api_generate_recommendations():
 @app.route('/recommendations')
 def show_recommendations():
     if recommender and recommender.user_profile and recommendations_data:
+        # recommendations_data agora é um dicionário com categorias
         return render_template('index.html', 
                              profile=recommender.user_profile,
                              recommendations=recommendations_data,
@@ -393,7 +489,7 @@ def show_recommendations():
 
 def main():
     global recommender
-    TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "6c5c4e771f8ade05ac3f77c826ad6f90")
+    TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "x")
     recommender = MovieRecommendationSystem(TMDB_API_KEY)
 
     print("\nIniciando interface web de filmes...")
