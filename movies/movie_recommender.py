@@ -227,8 +227,8 @@ class MovieRecommendationSystem:
 
         # 1. Filmes Populares e Bem Avaliados (base para todas as categorias)
         popular_and_top_rated = []
-        popular_and_top_rated.extend(fetch_movies("movie/popular", limit_pages=5))
-        popular_and_top_rated.extend(fetch_movies("movie/top_rated", limit_pages=5))
+        popular_and_top_rated.extend(fetch_movies("movie/popular", limit_pages=15))
+        popular_and_top_rated.extend(fetch_movies("movie/top_rated", limit_pages=15))
 
         # 2. Filmes baseados em queries de busca (para cobrir interesses específicos)
         query_based_movies = []
