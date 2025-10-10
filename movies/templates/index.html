@@ -93,9 +93,14 @@
                 <div class="col-md-6">
                     <h4>Informações Gerais</h4>
                     <p><strong>Filmes analisados:</strong> {{ profile.total_movies_analyzed }}</p>
+                    <ul>
+                        {% for movie_name in profile.liked_movie_names %}
+                            <li>{{ movie_name }}</li>
+                        {% endfor %}
+                    </ul>
                     
                     <h4>Características Médias</h4>
-                    <p><strong>Avaliação média:</strong> {{ "%.1f"|format(profile.avg_features.vote_average * 10) }}/10</p>
+                    <p><strong>Avaliação média:</strong> {{ "%.1f"|format(profile.avg_vote_average) }}/10</p>
                     <p><strong>Popularidade média:</strong> {{ "%.0f"|format(profile.avg_features.vote_count) }} votos</p>
                     <p><strong>Anos desde lançamento médio:</strong> {{ "%.0f"|format(profile.avg_features.years_since_release) }} anos</p>
                     <p><strong>Duração média:</strong> {{ "%.0f"|format(profile.avg_features.runtime) }} minutos</p>
@@ -256,7 +261,7 @@
         {% if recommendations.classic %}
         <div class="row mb-5">
             <div class="col-12">
-                <h2 class="section-title">🎬 Clássicos Relacionados</h2>
+                <h2 class="section-title">🎬 Filmes Clássicos</h2>
                 <p class="text-muted">Filmes clássicos que combinam com seus gêneros favoritos.</p>
                 <div class="row">
                     {% for rec in recommendations.classic %}
@@ -373,6 +378,58 @@
                                             <span class="badge bg-secondary">{{ "%.2f"|format(rec.similarity_score) }} - Fraca</span>
                                         {% endif %}
                                     </small>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Seção: Atores que você gosta -->
+        {% if actor_recommendations %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <h2 class="section-title">🎭 Atores que você gosta</h2>
+                <p class="text-muted">Filmes com atores que aparecem nos filmes que você curtiu.</p>
+                <div class="row">
+                    {% for rec in actor_recommendations %}
+                        <div class="col-md-4 mb-4">
+                            <div class="card movie-card h-100">
+                                <div class="card-header">
+                                    #{{ rec.rank }} - {{ rec.movie_info.title }}
+                                </div>
+                                <div class="card-body">
+                                    {% if rec.movie_info.poster_path %}
+                                        <img src="{{ rec.movie_info.poster_path }}" alt="{{ rec.movie_info.title }}" class="movie-poster mb-3">
+                                    {% endif %}
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Data de Lançamento:</strong> {{ rec.movie_info.release_date }}</p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Avaliação:</strong> 
+                                        <span class="badge bg-warning text-dark">{{ "%.1f"|format(rec.movie_info.vote_average) }}/10</span>
+                                    </p>
+                                    
+                                    <p style="color: #e0e0e0;"><strong>Gêneros:</strong></p>
+                                    <div>
+                                        {% for genre in rec.movie_info.genres %}
+                                            <span class="badge bg-primary">{{ genre }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <p class="mt-3" style="color: #e0e0e0;"><strong>Sinopse:</strong></p>
+                                    <p style="font-size: 0.9em; color: #c0c0c0;">{{ rec.movie_info.overview[:150] }}{% if rec.movie_info.overview|length > 150 %}...{% endif %}</p>
+                                    
+                                    <p class="mt-3 recommendation-reason">
+                                        {{ rec.recommendation_reason }}
+                                    </p>
+                                    
+                                    <div class="mt-3">
+                                        <a href="{{ rec.movie_info.url }}" target="_blank" class="btn btn-danger btn-sm">
+                                            Ver no TMDb
+                                        </a>
+                                    </div>
                                 </div>
                             </div>
                         </div>
