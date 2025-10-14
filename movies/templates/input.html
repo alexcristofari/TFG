@@ -85,6 +85,32 @@
             padding-bottom: 10px;
             margin-bottom: 20px;
         }
+        /* Estilos para o painel de progresso */
+        #progress-panel {
+            display: none; /* Começa escondido */
+            background-color: #16213e;
+            color: #e0e0e0;
+            border: 1px solid #ff6b6b;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        #progress-log {
+            background-color: #0d0221;
+            border: 1px solid #2a2d3a;
+            border-radius: 5px;
+            height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+        }
+        .spinner-border {
+            width: 1.5rem;
+            height: 1.5rem;
+            color: #ff6b6b;
+        }
     </style>
 </head>
 <body>
@@ -120,70 +146,83 @@
                 <button class="btn btn-success btn-lg mt-3" id="generateBtn" disabled>Gerar Recomendações</button>
             </div>
         </div>
+
+        <!-- Painel de Progresso (começa escondido) -->
+        <div id="progress-panel">
+            <div class="d-flex align-items-center mb-3">
+                <div class="spinner-border me-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h4 class="mb-0">Gerando Recomendações...</h4>
+            </div>
+            <p class="text-muted">O sistema está analisando milhares de filmes para encontrar as melhores sugestões para você. Isso pode levar alguns minutos.</p>
+            <div id="progress-log"></div>
+        </div>
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let selectedMovies = [];
         
-        document.getElementById('searchBtn').addEventListener('click', searchMovies);
-        document.getElementById('movieSearch').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
+        document.getElementById("searchBtn").addEventListener("click", searchMovies);
+        document.getElementById("movieSearch").addEventListener("keypress", function(e) {
+            if (e.key === "Enter") {
                 searchMovies();
             }
         });
         
-        document.getElementById('generateBtn').addEventListener('click', generateRecommendations);
+        // A função generateRecommendations original foi renomeada para evitar conflito e a nova lógica de progresso foi adicionada
+        document.getElementById("generateBtn").addEventListener("click", generateRecommendationsWithProgress);
         
         async function searchMovies() {
-            const query = document.getElementById('movieSearch').value.trim();
+            const query = document.getElementById("movieSearch").value.trim();
             if (!query) {
-                alert('Por favor, digite o nome de um filme.');
+                alert("Por favor, digite o nome de um filme.");
                 return;
             }
             
-            const resultsDiv = document.getElementById('searchResults');
-            resultsDiv.innerHTML = '<p class="text-center">Buscando...</p>';
+            const resultsDiv = document.getElementById("searchResults");
+            resultsDiv.innerHTML = "<p class=\"text-center\">Buscando...</p>";
             
             try {
                 const response = await fetch(`/api/search?query=${encodeURIComponent(query)}`);
                 const data = await response.json();
                 
                 if (data.results && data.results.length > 0) {
-                    resultsDiv.innerHTML = '';
+                    resultsDiv.innerHTML = "";
                     data.results.forEach(movie => {
-                        const movieDiv = document.createElement('div');
-                        movieDiv.className = 'search-result d-flex align-items-center';
+                        const movieDiv = document.createElement("div");
+                        movieDiv.className = "search-result d-flex align-items-center";
                         
                         const posterUrl = movie.poster_path 
                             ? `https://image.tmdb.org/t/p/w92${movie.poster_path}` 
-                            : 'https://via.placeholder.com/50x75?text=Sem+Poster';
+                            : "https://via.placeholder.com/50x75?text=Sem+Poster";
                         
                         movieDiv.innerHTML = `
                             <img src="${posterUrl}" class="movie-poster-small" alt="${movie.title}">
                             <div>
-                                <strong>${movie.title}</strong> (${movie.release_date ? movie.release_date.split('-')[0] : 'N/A'})
+                                <strong>${movie.title}</strong> (${movie.release_date ? movie.release_date.split("-")[0] : "N/A"})
                                 <br>
-                                <small class="text-muted">${movie.overview ? movie.overview.substring(0, 100) + '...' : 'Sem sinopse'}</small>
+                                <small class="text-muted">${movie.overview ? movie.overview.substring(0, 100) + "..." : "Sem sinopse"}</small>
                             </div>
                         `;
                         
-                        movieDiv.addEventListener('click', () => addMovie(movie));
+                        movieDiv.addEventListener("click", () => addMovie(movie));
                         resultsDiv.appendChild(movieDiv);
                     });
                 } else {
-                    resultsDiv.innerHTML = '<p class="text-center text-muted">Nenhum filme encontrado.</p>';
+                    resultsDiv.innerHTML = "<p class=\"text-center text-muted\">Nenhum filme encontrado.</p>";
                 }
             } catch (error) {
-                console.error('Erro ao buscar filmes:', error);
-                resultsDiv.innerHTML = '<p class="text-center text-danger">Erro ao buscar filmes. Tente novamente.</p>';
+                console.error("Erro ao buscar filmes:", error);
+                resultsDiv.innerHTML = "<p class=\"text-center text-danger\">Erro ao buscar filmes. Tente novamente.</p>";
             }
         }
         
         function addMovie(movie) {
             // Verifica se o filme já foi adicionado
             if (selectedMovies.find(m => m.id === movie.id)) {
-                alert('Este filme já foi adicionado!');
+                alert("Este filme já foi adicionado!");
                 return;
             }
             
@@ -197,22 +236,22 @@
         }
         
         function updateSelectedMovies() {
-            const selectedDiv = document.getElementById('selectedMovies');
-            const countSpan = document.getElementById('selectedCount');
-            const generateBtn = document.getElementById('generateBtn');
+            const selectedDiv = document.getElementById("selectedMovies");
+            const countSpan = document.getElementById("selectedCount");
+            const generateBtn = document.getElementById("generateBtn");
             
             countSpan.textContent = selectedMovies.length;
             
             if (selectedMovies.length === 0) {
-                selectedDiv.innerHTML = '<p class="text-muted">Nenhum filme selecionado ainda.</p>';
+                selectedDiv.innerHTML = "<p class=\"text-muted\">Nenhum filme selecionado ainda.</p>";
                 generateBtn.disabled = true;
             } else {
-                selectedDiv.innerHTML = '';
+                selectedDiv.innerHTML = "";
                 selectedMovies.forEach(movie => {
-                    const movieDiv = document.createElement('div');
-                    movieDiv.className = 'selected-movie';
+                    const movieDiv = document.createElement("div");
+                    movieDiv.className = "selected-movie";
                     movieDiv.innerHTML = `
-                        <strong>${movie.title}</strong> (${movie.release_date ? movie.release_date.split('-')[0] : 'N/A'})
+                        <strong>${movie.title}</strong> (${movie.release_date ? movie.release_date.split("-")[0] : "N/A"})
                         <button class="remove-btn" onclick="removeMovie(${movie.id})">✕</button>
                     `;
                     selectedDiv.appendChild(movieDiv);
@@ -222,41 +261,69 @@
             }
         }
         
-        async function generateRecommendations() {
+        // NOVA FUNÇÃO PARA GERAR RECOMENDAÇÕES COM FEEDBACK VISUAL
+        async function generateRecommendationsWithProgress() {
             if (selectedMovies.length < 3) {
-                alert('Por favor, selecione pelo menos 3 filmes.');
+                alert("Por favor, selecione pelo menos 3 filmes.");
                 return;
             }
             
-            const generateBtn = document.getElementById('generateBtn');
+            const generateBtn = document.getElementById("generateBtn");
+            const progressPanel = document.getElementById("progress-panel");
+            const progressLog = document.getElementById("progress-log");
+
+            // Esconde os cards de seleção e mostra o painel de progresso
+            document.querySelectorAll(".card").forEach(card => card.style.display = "none");
             generateBtn.disabled = true;
-            generateBtn.textContent = 'Gerando Recomendações...';
+            progressPanel.style.display = "block";
+            progressLog.innerHTML = "Iniciando conexão com o servidor...<br>";
+
+            // Inicia a escuta por eventos de progresso (Server-Sent Events)
+            const eventSource = new EventSource("/api/progress_stream");
             
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                progressLog.innerHTML += data.message + "<br>";
+                // Auto-scroll para o final do log
+                progressLog.scrollTop = progressLog.scrollHeight;
+            };
+
+            eventSource.onerror = function() {
+                progressLog.innerHTML += "<span class=\"text-danger\">Conexão com o servidor perdida. Tentando reconectar...</span><br>";
+            };
+
             try {
                 const movieIds = selectedMovies.map(m => m.id);
-                const response = await fetch('/api/generate_recommendations', {
-                    method: 'POST',
+                const response = await fetch("/api/generate_recommendations", {
+                    method: "POST",
                     headers: {
-                        'Content-Type': 'application/json',
+                        "Content-Type": "application/json",
                     },
                     body: JSON.stringify({ movie_ids: movieIds })
                 });
                 
+                eventSource.close();
                 const data = await response.json();
                 
                 if (data.success) {
-                    // Redireciona para a página de recomendações
-                    window.location.href = '/recommendations';
+                    progressLog.innerHTML += "<strong>Redirecionando para os resultados!</strong>";
+                    window.location.href = "/recommendations";
                 } else {
-                    alert('Erro ao gerar recomendações: ' + (data.error || 'Erro desconhecido'));
+                    progressLog.innerHTML += `<strong class=\"text-danger\">Erro: ${data.error || "Erro desconhecido"}</strong>`;
+                    alert("Erro ao gerar recomendações: " + (data.error || "Erro desconhecido"));
+                    // Mostra os cards novamente em caso de erro
+                    document.querySelectorAll(".card").forEach(card => card.style.display = "block");
                     generateBtn.disabled = false;
-                    generateBtn.textContent = 'Gerar Recomendações';
+                    progressPanel.style.display = "none";
                 }
             } catch (error) {
-                console.error('Erro ao gerar recomendações:', error);
-                alert('Erro ao gerar recomendações. Tente novamente.');
+                eventSource.close();
+                console.error("Erro ao gerar recomendações:", error);
+                progressLog.innerHTML += "<strong class=\"text-danger\">Erro de conexão. Tente novamente.</strong>";
+                alert("Erro de conexão ao gerar recomendações. Tente novamente.");
+                document.querySelectorAll(".card").forEach(card => card.style.display = "block");
                 generateBtn.disabled = false;
-                generateBtn.textContent = 'Gerar Recomendações';
+                progressPanel.style.display = "none";
             }
         }
     </script>
