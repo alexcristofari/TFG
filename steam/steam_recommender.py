@@ -1,4 +1,3 @@
-
 """
 Sistema de Recomendação Híbrido para Jogos - Versão Aprimorada
 Este módulo implementa um sistema de recomendação que combina filtragem colaborativa
@@ -693,6 +692,38 @@ class SteamRecommendationSystem:
         print(f"✓ {len(final_collaborative_recs)} recomendações colaborativas geradas.")
         return final_collaborative_recs
 
+
+
+    def calculate_weighted_score(self, similarity: float, total_reviews: int, positive_ratio: float) -> float:
+        """
+        Calcula uma pontuação ponderada combinando similaridade, número de avaliações e taxa de avaliações positivas.
+        
+        Args:
+            similarity (float): Pontuação de similaridade baseada em conteúdo.
+            total_reviews (int): Número total de avaliações do jogo.
+            positive_ratio (float): Proporção de avaliações positivas do jogo (0 a 1).
+            
+        Returns:
+            float: Pontuação ponderada final para o jogo.
+        """
+        # Pesos para cada componente (ajustáveis conforme a necessidade)
+        weight_similarity = 0.6
+        weight_reviews = 0.2  # Importância para jogos populares
+        weight_positive = 0.2 # Importância para jogos bem avaliados
+
+        # Normaliza o número de avaliações (log-scale para reduzir o impacto de valores extremos)
+        # Adiciona 1 para evitar log(0)
+        normalized_reviews = np.log1p(total_reviews) / np.log1p(10000) # Normaliza para um máximo de 10000 avaliações
+        normalized_reviews = min(normalized_reviews, 1.0) # Garante que não exceda 1
+
+        # Calcula a pontuação ponderada
+        weighted_score = (
+            weight_similarity * similarity +
+            weight_reviews * normalized_reviews +
+            weight_positive * positive_ratio
+        )
+        return weighted_score
+
     def get_recommendations(self, search_queries: List[str], num_recommendations: int = 10, 
                             content_weight: float = 0.7, collaborative_weight: float = 0.3) -> List[Dict]:
 
@@ -713,8 +744,14 @@ class SteamRecommendationSystem:
         
         # Busca jogos candidatos
         all_games = []
-        for query in search_queries:
-            games = self.search_games(query, limit=20)
+        # Expandir as search_queries para incluir mais gêneros e termos amplos
+        expanded_search_queries = list(set(search_queries + self.all_genres + ["Popular", "Top Rated", "Best Selling"]))
+
+        # Aumentar o limite de jogos por query para obter mais candidatos
+        # Vamos buscar mais jogos por query e de mais queries para tentar atingir os 500 jogos.
+        # O limite de 100 por query é um bom ponto de partida.
+        for query in expanded_search_queries:
+            games = self.search_games(query, limit=100)
             all_games.extend(games)
         
         # Remove duplicatas
@@ -734,11 +771,34 @@ class SteamRecommendationSystem:
         game_similarities = self.calculate_content_based_similarity(filtered_games)
         
         # Prepara recomendações finais
+        scored_recommendations = []
+        for game, similarity in game_similarities:
+            # Obtém total_reviews e positive_ratio para o jogo
+            total_reviews = game['features']['total_reviews']
+            positive_ratio = game['features']['positive_ratio']
+            
+            # Calcula a pontuação ponderada
+            weighted_score = self.calculate_weighted_score(similarity, total_reviews, positive_ratio)
+            
+            scored_recommendations.append({
+                'game': game,
+                'similarity': similarity,
+                'weighted_score': weighted_score
+            })
+            
+        # Ordena as recomendações pela pontuação ponderada (maior primeiro)
+        scored_recommendations.sort(key=lambda x: x['weighted_score'], reverse=True)
+        
         recommendations = []
-        for game, similarity in game_similarities[:num_recommendations]:
+        for i, rec_data in enumerate(scored_recommendations[:num_recommendations]):
+            game = rec_data['game']
+            similarity = rec_data['similarity']
+            weighted_score = rec_data['weighted_score']
+            
             recommendation = {
-                'rank': len(recommendations) + 1,
+                'rank': i + 1,
                 'similarity_score': float(similarity),
+                'weighted_score': float(weighted_score),
                 'game_info': {
                     'name': game['name'],
                     'price': game['price'],
@@ -755,18 +815,18 @@ class SteamRecommendationSystem:
                     'supports_controller': game['features']['supports_controller'],
                     'is_multiplayer': game['features']['is_multiplayer'],
                     'is_singleplayer': game['features']['is_singleplayer'],
-                    'is_rpg': game['features']['is_rpg'],
-                    'is_action': game['features']['is_action'],
-                    'is_strategy': game['features']['is_strategy']
+                    'is_rpg': game["features"]["is_rpg"],
+                    'is_action': game["features"]["is_action"],
+                    'is_strategy': game["features"]["is_strategy"]
                 },
-                'recommendation_reason': self._generate_recommendation_reason(game, similarity)
+                'recommendation_reason': self._generate_recommendation_reason(game, similarity, weighted_score)
             }
             recommendations.append(recommendation)
         
         print(f"✓ {len(recommendations)} recomendações geradas")
         return recommendations
     
-    def _generate_recommendation_reason(self, game: Dict, similarity: float) -> str:
+    def _generate_recommendation_reason(self, game: Dict, similarity: float, weighted_score: float) -> str:
         """
         Gera uma explicação para a recomendação baseada nas características
         
@@ -824,24 +884,24 @@ class SteamRecommendationSystem:
         elif features['years_since_release'] > 5:
             reasons.append("clássico")
         
-        # Classificação da similaridade
-        if similarity >= 0.8:
-            similarity_class = "Excelente combinação"
-            explanation = "Este jogo combina perfeitamente com seu perfil!"
-        elif similarity >= 0.6:
-            similarity_class = "Boa combinação"
-            explanation = "Este jogo combina bem com suas preferências."
-        elif similarity >= 0.4:
-            similarity_class = "Combinação moderada"
-            explanation = "Este jogo tem algumas características que você gosta."
+        # Classificação da recomendação com base na pontuação ponderada
+        if weighted_score >= 0.8:
+            recommendation_class = "Excelente recomendação"
+            explanation = "Este jogo é uma excelente combinação com seu perfil, popularidade e avaliação!"
+        elif weighted_score >= 0.6:
+            recommendation_class = "Boa recomendação"
+            explanation = "Este jogo é uma boa combinação com suas preferências, popularidade e avaliação."
+        elif weighted_score >= 0.4:
+            recommendation_class = "Recomendação moderada"
+            explanation = "Este jogo tem algumas características que você gosta e uma boa avaliação/popularidade."
         else:
-            similarity_class = "Combinação fraca"
-            explanation = "Este jogo é diferente do seu perfil, mas pode ser interessante para explorar novos gêneros."
+            recommendation_class = "Recomendação para explorar"
+            explanation = "Este jogo pode ser interessante para explorar novos gêneros, com base em sua similaridade e popularidade."
         
         if reasons:
-            return f"{explanation} Características em comum: {', '.join(reasons)}. (similaridade: {similarity:.2f} - {similarity_class})"
+            return f"{explanation} Características em comum: {", ".join(reasons)}. (Pontuação: {weighted_score:.2f} - {recommendation_class})"
         else:
-            return f"{explanation} (similaridade: {similarity:.2f} - {similarity_class})"
+            return f"{explanation} (Pontuação: {weighted_score:.2f} - {recommendation_class})"
     
     def get_similar_friends(self, num_friends: int = 5) -> List[Tuple[Dict, float]]:
         """
