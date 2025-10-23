@@ -1,5 +1,5 @@
 """
-Sistema de Recomendação Híbrido para Jogos - Versão Aprimorada
+Sistema de Recomendação Híbrido para Jogos - Versão Aprimorada e Otimizada
 Este módulo implementa um sistema de recomendação que combina filtragem colaborativa
 e filtragem baseada em conteúdo usando dados da Steam.
 """
@@ -15,7 +15,46 @@ import json
 import time
 import datetime
 import os
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, session
+import logging
+from logging.handlers import RotatingFileHandler
+from requests.exceptions import HTTPError, Timeout, RequestException
+
+# Importar biblioteca para gerenciar variáveis de ambiente
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env com tratamento de erro
+try:
+    load_dotenv()
+except UnicodeDecodeError:
+    print("⚠ Erro ao ler arquivo .env. Verifique a codificação do arquivo.")
+    print("   O arquivo deve ser salvo com codificação UTF-8.")
+    print("   Tente criar o arquivo .env novamente usando o Bloco de Notas com codificação UTF-8.")
+    exit(1)
+
+# Configurar logging sem emojis para evitar problemas de codificação no Windows
+def setup_logging():
+    """Configura sistema de logging robusto"""
+    # Criar logger
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    
+    # Formatter sem emojis
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Handler para arquivo (com rotação)
+    file_handler = RotatingFileHandler('steam_recommender.log', maxBytes=1024*1024, backupCount=5)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    # Handler para console (sem emojis)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+logger = setup_logging()
 
 class SteamRecommendationSystem:
     """
@@ -28,17 +67,27 @@ class SteamRecommendationSystem:
     - Similaridade do cosseno para recomendações
     """
     
-    def __init__(self, api_key: str, steam_id: str):
+    def __init__(self, api_key: str, steam_id: str, mode: str = "balanced"):
         """
         Inicializa o sistema de recomendação
         
         Args:
             api_key (str): Chave da API da Steam
             steam_id (str): ID do usuário na Steam (formato 64 bits)
+            mode (str): Modo de operação
+                - "fast": Rápido, usa cache sempre que possível
+                - "balanced": Balanceado (padrão) - bom meio termo
+                - "thorough": Completo, analisa tudo (pode bater rate limit)
         """
         self.api_key = api_key
         self.steam_id = steam_id
         self.base_url = "https://api.steampowered.com"
+        self.mode = mode
+        
+        logger.info(f"Inicializando sistema para Steam ID: {steam_id} no modo {mode}")
+        
+        # Configurações por modo
+        self.config = self._get_mode_config(mode)
         
         # Scaler para normalização das características
         self.scaler = MinMaxScaler()
@@ -50,8 +99,15 @@ class SteamRecommendationSystem:
         self.owned_games_ids = set()
         self.user_name = None
         
-        # Cache para requisições à API
+        # Cache persistente para requisições à API
         self.app_details_cache = {}
+        self.cache_file = "steam_games_cache.json"
+        self.cache_metadata = {}
+        self._load_cache()
+        
+        # Contador de requisições
+        self.request_count = 0
+        self.cache_hits = 0
         
         # Lista expandida de gêneros para rastreamento
         self.all_genres = [
@@ -74,6 +130,90 @@ class SteamRecommendationSystem:
             'Casual', 'Massively Multiplayer', 'Free to Play', 'Early Access',
             'Puzzle', 'Platformer', 'Shooter', 'Horror'
         ]
+    
+    def _get_mode_config(self, mode: str) -> Dict:
+        """Retorna configurações baseadas no modo escolhido"""
+        configs = {
+            "fast": {
+                "profile_limit": 25,
+                "search_limit": 30,
+                "max_queries": 5,
+                "sleep_time": 0.3,
+                "pause_every": 15,
+                "pause_duration": 2,
+                "prefer_cache": True
+            },
+            "balanced": {
+                "profile_limit": 40,
+                "search_limit": 60,
+                "max_queries": 8,
+                "sleep_time": 0.35,
+                "pause_every": 12,
+                "pause_duration": 3,
+                "prefer_cache": False
+            },
+            "thorough": {
+                "profile_limit": 60,
+                "search_limit": 100,
+                "max_queries": 12,
+                "sleep_time": 0.5,
+                "pause_every": 8,
+                "pause_duration": 4,
+                "prefer_cache": False
+            }
+        }
+        return configs.get(mode, configs["balanced"])
+    
+    def _load_cache(self):
+        """Carrega cache com informação de idade"""
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                    
+                # Se o cache tem metadata
+                if "metadata" in cache_data:
+                    self.cache_metadata = cache_data["metadata"]
+                    self.app_details_cache = cache_data["games"]
+                else:
+                    # Cache antigo sem metadata
+                    self.app_details_cache = cache_data
+                    self.cache_metadata = {"created": time.time()}
+                    
+                logger.info(f"Cache carregado: {len(self.app_details_cache)} jogos")
+                
+                # Mostra idade do cache
+                age_days = (time.time() - self.cache_metadata.get("created", time.time())) / 86400
+                if age_days > 30:
+                    logger.warning(f"Cache tem {age_days:.0f} dias. Considere rebuild para dados atualizados.")
+                
+            except Exception as e:
+                logger.error(f"Erro ao carregar cache: {e}")
+                self.app_details_cache = {}
+                self.cache_metadata = {"created": time.time()}
+        else:
+            logger.info("Criando novo cache...")
+            self.app_details_cache = {}
+            self.cache_metadata = {"created": time.time()}
+    
+    def _save_cache_batch(self):
+        """Salva cache com metadata"""
+        try:
+            cache_data = {
+                "metadata": {
+                    "created": self.cache_metadata.get("created", time.time()),
+                    "updated": time.time(),
+                    "total_games": len(self.app_details_cache),
+                    "mode": self.mode
+                },
+                "games": self.app_details_cache
+            }
+            
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, indent=2, ensure_ascii=False)
+                
+        except Exception as e:
+            logger.error(f"Erro ao salvar cache: {e}")
         
     def get_friends_list(self) -> List[Dict]:
         """Obtém a lista de amigos do usuário"""
@@ -90,14 +230,21 @@ class SteamRecommendationSystem:
 
             data = response.json()
             friends = data.get('friendslist', {}).get('friends', [])
+            logger.info(f"Obtidos {len(friends)} amigos")
             return friends
 
+        except HTTPError as http_err:
+            if response.status_code == 401:
+                logger.error("Chave da API inválida")
+            elif response.status_code == 403:
+                logger.error("Acesso negado à lista de amigos")
+            else:
+                logger.error(f"Erro HTTP ao obter amigos: {http_err}")
         except Exception as e:
-            print(f"Erro ao obter lista de amigos: {e}")
-            return []
+            logger.error(f"Erro ao obter lista de amigos: {e}")
+        return []
 
     def get_user_summary(self) -> Dict:
-
         """Obtém informações básicas do usuário"""
         url = f"{self.base_url}/ISteamUser/GetPlayerSummaries/v0002/"
         params = {
@@ -113,19 +260,25 @@ class SteamRecommendationSystem:
             players = data.get('response', {}).get('players', [])
             
             if players:
+                logger.info(f"Usuário encontrado: {players[0].get('personaname', 'Unknown')}")
                 return players[0]
             return {}
             
+        except HTTPError as http_err:
+            if response.status_code == 401:
+                logger.error("Chave da API inválida")
+            else:
+                logger.error(f"Erro HTTP ao obter usuário: {http_err}")
         except Exception as e:
-            print(f"Erro ao obter informações do usuário: {e}")
-            return {}
+            logger.error(f"Erro ao obter informações do usuário: {e}")
+        return {}
     
     def get_owned_games_for_id(self, steam_id: str) -> List[Dict]:
         """Obtém a biblioteca de jogos do usuário"""
         url = f"{self.base_url}/IPlayerService/GetOwnedGames/v0001/"
         params = {
             'key': self.api_key,
-            'steamid': self.steam_id,
+            'steamid': steam_id,
             'include_appinfo': True,
             'include_played_free_games': True
         }
@@ -139,9 +292,10 @@ class SteamRecommendationSystem:
                 raise ValueError("Resposta inválida da API")
                 
             games = data.get('response', {}).get('games', [])
+            logger.debug(f"Obtidos {len(games)} jogos para {steam_id}")
             return games
             
-        except requests.exceptions.HTTPError as http_err:
+        except HTTPError as http_err:
             if response.status_code == 401:
                 # Não levanta erro para amigos, apenas retorna vazio
                 return []
@@ -149,23 +303,38 @@ class SteamRecommendationSystem:
                 # Acesso negado, biblioteca privada, retorna vazio
                 return []
             elif response.status_code == 400:
+                logger.error("Requisição inválida. Verifique o formato do Steam ID")
                 raise ValueError("Requisição inválida. Verifique o formato do Steam ID")
             else:
-                print(f"Erro HTTP ao obter jogos para {steam_id}: {http_err}")
+                logger.error(f"Erro HTTP ao obter jogos para {steam_id}: {http_err}")
                 return []
         except Exception as err:
-            print(f"Erro ao obter jogos para {steam_id}: {err}")
+            logger.error(f"Erro ao obter jogos para {steam_id}: {err}")
             return []
 
     def get_owned_games(self) -> List[Dict]:
         """Obtém a biblioteca de jogos do usuário"""
         return self.get_owned_games_for_id(self.steam_id)
-
     
-    def get_app_details(self, app_id: int) -> Dict:
-        """Obtém detalhes de um jogo específico"""
-        if app_id in self.app_details_cache:
-            return self.app_details_cache[app_id]
+    def get_app_details(self, app_id: int, max_retries: int = 3) -> Dict:
+        """
+        Obtém detalhes de um jogo específico com cache persistente e retry
+        
+        Args:
+            app_id (int): ID do jogo
+            max_retries (int): Número máximo de tentativas
+        
+        Returns:
+            Dict: Detalhes do jogo ou dicionário vazio
+        """
+        # Verifica cache primeiro (converte para string para compatibilidade JSON)
+        cache_key = str(app_id)
+        if cache_key in self.app_details_cache:
+            self.cache_hits += 1
+            return self.app_details_cache[cache_key]
+        
+        # Nova requisição
+        self.request_count += 1
         
         url = "https://store.steampowered.com/api/appdetails"
         params = {
@@ -173,27 +342,45 @@ class SteamRecommendationSystem:
             'cc': 'br'
         }
         
-        try:
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            if str(app_id) in data and data[str(app_id)]['success']:
-                details = data[str(app_id)]['data']
-                self.app_details_cache[app_id] = details
-                return details
-            
-            return {}
-        except Exception as e:
-            print(f"Erro ao obter detalhes do app {app_id}: {e}")
-            return {}
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, params=params, timeout=10)
+                
+                # Se bateu no rate limit (429), espera e tenta novamente
+                if response.status_code == 429:
+                    wait_time = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    logger.warning(f"Rate limit! Aguardando {wait_time}s... (tentativa {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                
+                response.raise_for_status()
+                
+                data = response.json()
+                if str(app_id) in data and data[str(app_id)]['success']:
+                    details = data[str(app_id)]['data']
+                    self.app_details_cache[cache_key] = details
+                    return details
+                
+                return {}
+                
+            except Timeout:
+                logger.warning(f"Timeout ao buscar {app_id}. Tentativa {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+            except RequestException as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Erro ao obter detalhes do app {app_id}: {e}")
+                    return {}
+                time.sleep(2 ** attempt)
+        
+        return {}
     
-    def build_user_profile(self, limit: int = 50, force_rebuild: bool = False) -> Dict:
+    def build_user_profile(self, limit: int = None, force_rebuild: bool = False) -> Dict:
         """
         Constrói o perfil do usuário baseado em sua biblioteca de jogos
         
         Args:
-            limit (int): Número de jogos a analisar
+            limit (int): Número de jogos a analisar (None usa configuração do modo)
             force_rebuild (bool): Se True, força a reconstrução do perfil mesmo se já existir
             
         Returns:
@@ -201,31 +388,48 @@ class SteamRecommendationSystem:
         """
         # Verifica se já temos um perfil salvo e se não for para forçar reconstrução
         if not force_rebuild and self.user_profile is not None:
-            print("Usando perfil existente...")
+            logger.info("Usando perfil existente em memória...")
             return self.user_profile
             
         # Tenta carregar do arquivo
         if not force_rebuild and os.path.exists("steam_profile.json"):
             try:
                 with open("steam_profile.json", "r", encoding="utf-8") as f:
-                    self.user_profile = json.load(f)
+                    profile_data = json.load(f)
+                    self.user_profile = profile_data
+                    
+                # Carrega o scaler salvo
+                if os.path.exists("steam_scaler.pkl"):
+                    import pickle
+                    with open("steam_scaler.pkl", "rb") as f:
+                        self.scaler = pickle.load(f)
+                    logger.info("Scaler carregado do arquivo")
+                else:
+                    logger.warning("Scaler não encontrado, será necessário reconstruir o perfil")
+                    force_rebuild = True
                     
                 # Verifica se o perfil tem todas as características necessárias
                 required_features = ['price', 'positive_ratio', 'total_reviews', 
                                    'years_since_release', 'supports_controller']
                 for feature in required_features:
                     if feature not in self.user_profile.get('avg_features', {}):
-                        print(f"Perfil salvo não contém a característica '{feature}'. Reconstruindo...")
+                        logger.warning(f"Perfil salvo não contém a característica '{feature}'. Reconstruindo...")
                         force_rebuild = True
                         break
                 
                 if not force_rebuild:
-                    print("Perfil carregado do arquivo...")
+                    # Reconstrói o vetor de features do usuário
+                    self._rebuild_user_vector_from_profile()
+                    logger.info("Perfil carregado do arquivo...")
                     return self.user_profile
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                logger.warning(f"Erro ao carregar perfil salvo: {e}")
+        
+        # Usa limite do modo se não especificado
+        if limit is None:
+            limit = self.config["profile_limit"]
                 
-        print("Construindo perfil do usuário...")
+        logger.info(f"Construindo perfil do usuário (modo: {self.mode}, limite: {limit})...")
         
         # Obtém informações do usuário
         user_info = self.get_user_summary()
@@ -240,19 +444,35 @@ class SteamRecommendationSystem:
         # Armazena IDs dos jogos possuídos
         self.owned_games_ids = {game['appid'] for game in owned_games}
         
+        # Prioriza jogos com mais de 1h de jogo (remove testes/bundles não jogados)
+        played_games = [g for g in owned_games if g.get('playtime_forever', 0) > 60]
+        
         # Ordena por tempo de jogo (prioridade para jogos mais jogados)
-        sorted_games = sorted(owned_games, key=lambda x: x.get('playtime_forever', 0), reverse=True)
+        sorted_games = sorted(played_games, key=lambda x: x.get('playtime_forever', 0), reverse=True)
         
         # Limita número de jogos
         games_to_analyze = sorted_games[:limit]
+        
+        logger.info(f"Analisando top {len(games_to_analyze)} jogos (de {len(owned_games)} totais)")
+        logger.info(f"Tempo total jogado: {sum(g.get('playtime_forever', 0) for g in games_to_analyze)//60:.0f}h")
+        
+        # Reset contadores
+        self.request_count = 0
+        self.cache_hits = 0
         
         # Extrai características dos jogos
         feature_vectors = []
         analyzed_games = []
         paid_games_prices = []  # Para calcular média de preços sem jogos grátis
         
-        for game in games_to_analyze:
+        for i, game in enumerate(games_to_analyze):
             app_id = game['appid']
+            
+            # Progresso visual
+            if (i + 1) % 5 == 0 or i == 0:
+                cache_rate = (self.cache_hits / (self.cache_hits + self.request_count) * 100) if (self.cache_hits + self.request_count) > 0 else 0
+                logger.info(f"[{i+1}/{len(games_to_analyze)}] Cache: {cache_rate:.0f}% | Novas requisições: {self.request_count}")
+            
             details = self.get_app_details(app_id)
             
             if not details:
@@ -332,8 +552,16 @@ class SteamRecommendationSystem:
                 'features': features
             })
             
-            # Respeitar limites da API
-            time.sleep(0.1)
+            # Pausa inteligente baseada no modo
+            if (i + 1) % self.config["pause_every"] == 0:
+                logger.info(f"Pausa estratégica de {self.config['pause_duration']}s...")
+                time.sleep(self.config["pause_duration"])
+                self._save_cache_batch()
+            else:
+                time.sleep(self.config["sleep_time"])
+        
+        # Salva cache final
+        self._save_cache_batch()
         
         if not feature_vectors:
             raise ValueError("Não foi possível obter características dos jogos")
@@ -342,7 +570,7 @@ class SteamRecommendationSystem:
         feature_matrix = np.array(feature_vectors)
         
         # Normaliza as características contínuas
-        continuous_indices = [0, 1, 2, 3, 8]  # price, positive_ratio, total_reviews, years_since_release, playtime (índice corrigido)
+        continuous_indices = [0, 1, 2, 3, 8]  # price, positive_ratio, total_reviews, years_since_release, playtime
         self.scaler.fit(feature_matrix[:, continuous_indices])
         feature_matrix[:, continuous_indices] = self.scaler.transform(feature_matrix[:, continuous_indices])
         
@@ -350,8 +578,8 @@ class SteamRecommendationSystem:
         user_avg_features = np.mean(feature_matrix, axis=0)
         
         # Depuração: imprimir informações sobre o vetor do usuário
-        print("Dimensão do vetor do usuário:", user_avg_features.shape)
-        print("Primeiros 10 valores do vetor do usuário:", user_avg_features[:10])
+        logger.debug(f"Dimensão do vetor do usuário: {user_avg_features.shape}")
+        logger.debug(f"Primeiros 10 valores do vetor do usuário: {user_avg_features[:10]}")
         
         # Armazena o perfil do usuário
         self.user_features_vector = user_avg_features
@@ -364,7 +592,7 @@ class SteamRecommendationSystem:
             'steam_id': self.steam_id,
             'user_name': self.user_name,
             'total_games_analyzed': len(analyzed_games),
-            'avg_paid_price': avg_paid_price,  # Nova: média de preços sem jogos grátis
+            'avg_paid_price': avg_paid_price,
             'avg_features': {}
         }
         
@@ -404,21 +632,21 @@ class SteamRecommendationSystem:
 
         for feature in required_features:
             if feature not in self.user_profile['avg_features']:
-                print(f"Característica ausente no perfil: {feature}")
+                logger.warning(f"Característica ausente no perfil: {feature}")
                 self.user_profile['avg_features'][feature] = 0.0
 
         # Verifica gêneros principais
         for genre in self.main_genres:
             genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
             if genre_key not in self.user_profile['avg_features']:
-                print(f"Gênero principal ausente no perfil: {genre}")
+                logger.warning(f"Gênero principal ausente no perfil: {genre}")
                 self.user_profile['avg_features'][genre_key] = 0.0
 
         # Verifica gêneros adicionais
         for genre in self.additional_genres:
             genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
             if genre_key not in self.user_profile['avg_features']:
-                print(f"Gênero adicional ausente no perfil: {genre}")
+                logger.warning(f"Gênero adicional ausente no perfil: {genre}")
                 self.user_profile['avg_features'][genre_key] = 0.0
         
         self.user_profile['top_games'] = analyzed_games[:10]
@@ -426,22 +654,38 @@ class SteamRecommendationSystem:
         # Salva o perfil automaticamente
         self.save_profile()
         
-        print(f"✓ Perfil construído com {len(analyzed_games)} jogos")
-        print(f"✓ Média de preço (jogos pagos): R${avg_paid_price:.2f}")
+        # Estatísticas finais
+        total_ops = self.cache_hits + self.request_count
+        if total_ops > 0:
+            cache_rate = (self.cache_hits / total_ops) * 100
+            logger.info(f"Perfil construído com {len(analyzed_games)} jogos")
+            logger.info("Estatísticas:")
+            logger.info(f"   • Cache hits: {self.cache_hits}")
+            logger.info(f"   • Novas requisições: {self.request_count}")
+            logger.info(f"   • Taxa de cache: {cache_rate:.1f}%")
+            logger.info(f"   • Média de preço (jogos pagos): R${avg_paid_price:.2f}")
+        
         return self.user_profile
     
-    def search_games(self, query: str, limit: int = 20) -> List[Dict]:
+    def search_games(self, query: str, limit: int = None, prioritize_cache: bool = None) -> List[Dict]:
         """
         Busca jogos na Steam e analisa suas características
         
         Args:
             query (str): Termo de busca
-            limit (int): Número de resultados
+            limit (int): Número de resultados (None usa configuração do modo)
+            prioritize_cache (bool): Se True, prioriza jogos em cache
             
         Returns:
             List[Dict]: Lista de jogos com características analisadas
         """
-        print(f"Buscando jogos para: '{query}'...")
+        if limit is None:
+            limit = self.config["search_limit"]
+        
+        if prioritize_cache is None:
+            prioritize_cache = self.config["prefer_cache"]
+        
+        logger.info(f"Buscando jogos para: '{query}' (limite: {limit})...")
         
         # Busca jogos usando a API de busca da Steam
         url = "https://store.steampowered.com/api/storesearch"
@@ -456,11 +700,37 @@ class SteamRecommendationSystem:
             response.raise_for_status()
             
             data = response.json()
-            games = data.get('items', [])[:limit]
+            games = data.get('items', [])
+            
+            # ESTRATÉGIA INTELIGENTE: Separa jogos em cache vs não-cache
+            cached_games = []
+            non_cached_games = []
+            
+            for game in games[:limit * 2]:  # Busca mais para filtrar
+                if str(game['id']) in self.app_details_cache:
+                    cached_games.append(game)
+                else:
+                    non_cached_games.append(game)
+            
+            # Prioriza cache se configurado
+            if prioritize_cache:
+                ordered_games = cached_games[:limit] + non_cached_games[:max(0, limit - len(cached_games))]
+            else:
+                # Mix balanceado
+                ordered_games = []
+                for i in range(limit):
+                    if i < len(cached_games):
+                        ordered_games.append(cached_games[i])
+                    if i < len(non_cached_games) and len(ordered_games) < limit:
+                        ordered_games.append(non_cached_games[i])
+            
+            logger.info(f"Jogos encontrados: {len(cached_games)} em cache, {len(non_cached_games)} novos")
             
             analyzed_games = []
-            for game in games:
+            for i, game in enumerate(ordered_games[:limit]):
                 app_id = game['id']
+                
+                was_cached = str(app_id) in self.app_details_cache
                 details = self.get_app_details(app_id)
                 
                 if not details:
@@ -539,14 +809,14 @@ class SteamRecommendationSystem:
                 feature_vector = list(features.values())
                 
                 # Normaliza as características contínuas usando o scaler do perfil do usuário
-                continuous_indices = [0, 1, 2, 3, 8]  # price, positive_ratio, total_reviews, years_since_release, playtime (índice corrigido)
+                continuous_indices = [0, 1, 2, 3, 8]  # price, positive_ratio, total_reviews, years_since_release, playtime
                 feature_array = np.array(feature_vector).reshape(1, -1)
                 feature_array[:, continuous_indices] = self.scaler.transform(feature_array[:, continuous_indices])
                 feature_vector = feature_array.flatten().tolist()
                 
                 # Depuração: imprimir informações sobre o vetor do jogo
-                print(f"Dimensão do vetor do jogo {game['name']}: {np.array(feature_vector).shape}")
-                print(f"Primeiros 10 valores do vetor do jogo {game['name']}: {feature_vector[:10]}")
+                logger.debug(f"Dimensão do vetor do jogo {game['name']}: {np.array(feature_vector).shape}")
+                logger.debug(f"Primeiros 10 valores do vetor do jogo {game['name']}: {feature_vector[:10]}")
                 
                 analyzed_game = {
                     'id': app_id,
@@ -561,14 +831,23 @@ class SteamRecommendationSystem:
                 }
                 analyzed_games.append(analyzed_game)
                 
-                # Respeitar limites da API
-                time.sleep(0.1)
+                # Pausa apenas se não estiver em cache
+                if not was_cached:
+                    if (i + 1) % self.config["pause_every"] == 0:
+                        logger.info(f"Pausa de {self.config['pause_duration']}s... ({i + 1}/{len(ordered_games[:limit])})")
+                        time.sleep(self.config["pause_duration"])
+                    else:
+                        time.sleep(self.config["sleep_time"])
             
-            print(f"✓ Analisados {len(analyzed_games)} jogos")
+            # Salva cache após busca
+            self._save_cache_batch()
+            
+            cache_rate = (self.cache_hits / (self.cache_hits + self.request_count) * 100) if (self.cache_hits + self.request_count) > 0 else 0
+            logger.info(f"Analisados {len(analyzed_games)} jogos (cache: {cache_rate:.0f}%)")
             return analyzed_games
             
         except Exception as e:
-            print(f"Erro na busca de jogos: {e}")
+            logger.error(f"Erro na busca de jogos: {e}")
             return []
     
     def calculate_content_based_similarity(self, games: List[Dict]) -> List[Tuple[Dict, float]]:
@@ -581,7 +860,7 @@ class SteamRecommendationSystem:
         Returns:
             List[Tuple[Dict, float]]: Lista de (jogo, similaridade) ordenada por similaridade
         """
-        print("Calculando similaridades baseadas em conteúdo...")
+        logger.info("Calculando similaridades baseadas em conteúdo...")
         
         # Extrai vetores de características dos jogos
         game_vectors = []
@@ -589,10 +868,10 @@ class SteamRecommendationSystem:
             if 'feature_vector' in game and len(game['feature_vector']) == len(self.user_features_vector):
                 game_vectors.append(game['feature_vector'])
             else:
-                print(f"Vetor de características inválido para o jogo: {game.get('name', 'Desconhecido')}")
+                logger.warning(f"Vetor de características inválido para o jogo: {game.get('name', 'Desconhecido')}")
         
         if not game_vectors:
-            print("Nenhum vetor de características válido encontrado!")
+            logger.warning("Nenhum vetor de características válido encontrado!")
             return []
         
         game_vectors = np.array(game_vectors)
@@ -600,7 +879,7 @@ class SteamRecommendationSystem:
         
         # Verifica dimensões
         if user_vector.shape[1] != game_vectors.shape[1]:
-            print(f"Dimensões incompatíveis: usuário {user_vector.shape}, jogos {game_vectors.shape}")
+            logger.error(f"Dimensões incompatíveis: usuário {user_vector.shape}, jogos {game_vectors.shape}")
             return []
         
         # Calcula similaridade do cosseno
@@ -609,7 +888,7 @@ class SteamRecommendationSystem:
         game_vectors_norm = np_linalg.norm(game_vectors, axis=1)
 
         if user_vector_norm == 0 or np.any(game_vectors_norm == 0):
-            print("Aviso: Vetor do usuário ou de algum jogo é nulo. Similaridade pode ser 0.")
+            logger.warning("Aviso: Vetor do usuário ou de algum jogo é nulo. Similaridade pode ser 0.")
             # Retorna similaridade 0 para vetores nulos
             similarities = np.zeros(game_vectors.shape[0])
         else:
@@ -621,7 +900,7 @@ class SteamRecommendationSystem:
         # Ordena por similaridade (maior primeiro)
         game_similarities.sort(key=lambda x: x[1], reverse=True)
         
-        print(f"✓ Similaridades calculadas para {len(games)} jogos")
+        logger.info(f"Similaridades calculadas para {len(games)} jogos")
         return game_similarities
     
     def get_collaborative_recommendations(self, num_friends: int = 5, num_games_per_friend: int = 10) -> List[Dict]:
@@ -629,17 +908,17 @@ class SteamRecommendationSystem:
         Gera recomendações baseadas em filtragem colaborativa, encontrando jogos que amigos semelhantes possuem
         e que o usuário principal ainda não tem.
         """
-        print("Gerando recomendações colaborativas...")
+        logger.info("Gerando recomendações colaborativas...")
         similar_friends = self.get_similar_friends(num_friends=num_friends)
         if not similar_friends:
-            print("Não foi possível encontrar amigos semelhantes para recomendações colaborativas.")
+            logger.warning("Não foi possível encontrar amigos semelhantes para recomendações colaborativas.")
             return []
 
         friend_recommended_games = {}
         for friend_data, similarity in similar_friends:
             friend_steam_id = friend_data["steam_id"]
             friend_name = friend_data["name"]
-            print(f"Analisando jogos do amigo {friend_name} (similaridade: {similarity:.2f})...")
+            logger.info(f"Analisando jogos do amigo {friend_name} (similaridade: {similarity:.2f})...")
             
             owned_games_by_friend = self.get_owned_games_for_id(friend_steam_id)
             
@@ -689,10 +968,8 @@ class SteamRecommendationSystem:
                 final_collaborative_recs.append(rec)
             time.sleep(0.1)
 
-        print(f"✓ {len(final_collaborative_recs)} recomendações colaborativas geradas.")
+        logger.info(f"{len(final_collaborative_recs)} recomendações colaborativas geradas.")
         return final_collaborative_recs
-
-
 
     def calculate_weighted_score(self, similarity: float, total_reviews: int, positive_ratio: float) -> float:
         """
@@ -724,14 +1001,13 @@ class SteamRecommendationSystem:
         )
         return weighted_score
 
-    def get_recommendations(self, search_queries: List[str], num_recommendations: int = 10, 
+    def get_recommendations(self, search_queries: List[str] = None, num_recommendations: int = 10, 
                             content_weight: float = 0.7, collaborative_weight: float = 0.3) -> List[Dict]:
-
         """
-        Gera recomendações baseadas apenas no perfil geral do usuário
+        Gera recomendações baseadas no perfil geral do usuário
         
         Args:
-            search_queries (List[str]): Lista de termos de busca
+            search_queries (List[str]): Lista de termos de busca (None usa queries automáticas)
             num_recommendations (int): Número de recomendações a retornar
             
         Returns:
@@ -740,19 +1016,33 @@ class SteamRecommendationSystem:
         if self.user_profile is None:
             raise ValueError("Perfil do usuário não foi construído. Execute build_user_profile() primeiro.")
         
-        print(f"Gerando {num_recommendations} recomendações baseadas no perfil geral...")
+        # Se não forneceu queries, usa gêneros favoritos do usuário
+        if search_queries is None:
+            search_queries = self._get_smart_queries()
+            logger.info(f"Queries automáticas baseadas no seu perfil: {search_queries}")
+        
+        # Limita queries baseado no modo
+        max_queries = self.config["max_queries"]
+        if len(search_queries) > max_queries:
+            search_queries = search_queries[:max_queries]
+            logger.info(f"Limitando a {max_queries} queries (modo {self.mode})")
+        
+        logger.info(f"Gerando {num_recommendations} recomendações (modo: {self.mode})...")
+        
+        # Reset stats
+        self.request_count = 0
+        self.cache_hits = 0
         
         # Busca jogos candidatos
         all_games = []
-        # Expandir as search_queries para incluir mais gêneros e termos amplos
-        expanded_search_queries = list(set(search_queries + self.all_genres + ["Popular", "Top Rated", "Best Selling"]))
-
-        # Aumentar o limite de jogos por query para obter mais candidatos
-        # Vamos buscar mais jogos por query e de mais queries para tentar atingir os 500 jogos.
-        # O limite de 100 por query é um bom ponto de partida.
-        for query in expanded_search_queries:
-            games = self.search_games(query, limit=100)
+        for i, query in enumerate(search_queries):
+            logger.info(f"[{i+1}/{len(search_queries)}] Buscando: '{query}'")
+            games = self.search_games(query)
             all_games.extend(games)
+            
+            # Pausa entre queries
+            if i < len(search_queries) - 1:
+                time.sleep(1)
         
         # Remove duplicatas
         unique_games = {}
@@ -761,11 +1051,21 @@ class SteamRecommendationSystem:
                 unique_games[game['id']] = game
         
         unique_games_list = list(unique_games.values())
-        print(f"✓ Total de jogos únicos encontrados: {len(unique_games_list)}")
+        logger.info(f"Total de jogos únicos encontrados: {len(unique_games_list)}")
         
         # Filtra jogos já possuídos
         filtered_games = [game for game in unique_games_list if game['id'] not in self.owned_games_ids]
-        print(f"✓ Jogos após filtrar os já possuídos: {len(filtered_games)}")
+        logger.info(f"Jogos após filtrar os já possuídos: {len(filtered_games)}")
+        
+        # Estatísticas da busca
+        total_ops = self.cache_hits + self.request_count
+        if total_ops > 0:
+            cache_rate = (self.cache_hits / total_ops) * 100
+            logger.info("Estatísticas da busca:")
+            logger.info(f"   • Total de operações: {total_ops}")
+            logger.info(f"   • Cache hits: {self.cache_hits} ({cache_rate:.1f}%)")
+            logger.info(f"   • Novas requisições: {self.request_count}")
+            logger.info(f"   • Jogos em cache agora: {len(self.app_details_cache)}")
         
         # Calcula similaridades
         game_similarities = self.calculate_content_based_similarity(filtered_games)
@@ -823,8 +1123,36 @@ class SteamRecommendationSystem:
             }
             recommendations.append(recommendation)
         
-        print(f"✓ {len(recommendations)} recomendações geradas")
+        logger.info(f"{len(recommendations)} recomendações geradas com sucesso!")
         return recommendations
+    
+    def _get_smart_queries(self) -> List[str]:
+        """Gera queries inteligentes baseadas no perfil do usuário"""
+        queries = []
+        features = self.user_profile.get('avg_features', {})
+        
+        # Top 3 gêneros favoritos
+        genre_scores = []
+        for genre in self.main_genres + self.additional_genres:
+            genre_key = f'is_{genre.lower().replace(" & ", "_").replace(" ", "_").replace("-", "_")}'
+            if genre_key in features and features[genre_key] > 0.3:
+                genre_scores.append((genre, features[genre_key]))
+        
+        genre_scores.sort(key=lambda x: x[1], reverse=True)
+        queries.extend([g[0] for g in genre_scores[:3]])
+        
+        # Adiciona queries complementares
+        if features.get('is_multiplayer', 0) > 0.5:
+            queries.append("Multiplayer")
+        
+        if features.get('positive_ratio', 0) > 0.8:
+            queries.append("Highly Rated")
+        
+        # Garante pelo menos 3 queries
+        if len(queries) < 3:
+            queries.extend(["Popular", "Top Rated"])
+        
+        return queries[:self.config["max_queries"]]
     
     def _generate_recommendation_reason(self, game: Dict, similarity: float, weighted_score: float) -> str:
         """
@@ -833,6 +1161,7 @@ class SteamRecommendationSystem:
         Args:
             game (Dict): Informações do jogo
             similarity (float): Score de similaridade
+            weighted_score (float): Score ponderado
             
         Returns:
             str: Explicação da recomendação
@@ -899,7 +1228,7 @@ class SteamRecommendationSystem:
             explanation = "Este jogo pode ser interessante para explorar novos gêneros, com base em sua similaridade e popularidade."
         
         if reasons:
-            return f"{explanation} Características em comum: {", ".join(reasons)}. (Pontuação: {weighted_score:.2f} - {recommendation_class})"
+            return f"{explanation} Características em comum: {', '.join(reasons)}. (Pontuação: {weighted_score:.2f} - {recommendation_class})"
         else:
             return f"{explanation} (Pontuação: {weighted_score:.2f} - {recommendation_class})"
     
@@ -907,10 +1236,10 @@ class SteamRecommendationSystem:
         """
         Encontra amigos com perfis de gosto semelhantes ao do usuário principal.
         """
-        print(f"Buscando {num_friends} amigos com perfis semelhantes...")
+        logger.info(f"Buscando {num_friends} amigos com perfis semelhantes...")
         friends_list = self.get_friends_list()
         if not friends_list:
-            print("Nenhum amigo encontrado ou lista de amigos privada.")
+            logger.warning("Nenhum amigo encontrado ou lista de amigos privada.")
             return []
 
         friend_profiles = []
@@ -930,7 +1259,7 @@ class SteamRecommendationSystem:
             time.sleep(0.1) # Respeitar limites da API
 
         if not friend_profiles:
-            print("Não foi possível construir perfis para amigos.")
+            logger.warning("Não foi possível construir perfis para amigos.")
             return []
 
         user_vector = self.user_features_vector.reshape(1, -1)
@@ -941,14 +1270,14 @@ class SteamRecommendationSystem:
             
             # Garante que os vetores têm a mesma dimensão antes de calcular a similaridade
             if user_vector.shape[1] != friend_vector.shape[1]:
-                print(f"Aviso: Dimensões de vetor incompatíveis para o amigo {friend_data['name']}. Ignorando.")
+                logger.warning(f"Dimensões de vetor incompatíveis para o amigo {friend_data['name']}. Ignorando.")
                 continue
 
             similarity = cosine_similarity(user_vector, friend_vector)[0][0]
             similar_friends.append((friend_data, similarity))
 
         similar_friends.sort(key=lambda x: x[1], reverse=True)
-        print(f"✓ Encontrados {len(similar_friends)} amigos com perfis semelhantes.")
+        logger.info(f"Encontrados {len(similar_friends)} amigos com perfis semelhantes.")
         return similar_friends[:num_friends]
 
     def get_user_summary_for_id(self, steam_id: str) -> Dict:
@@ -967,16 +1296,21 @@ class SteamRecommendationSystem:
                 return players[0]
             return {}
         except Exception as e:
-            print(f"Erro ao obter informações do usuário {steam_id}: {e}")
+            logger.error(f"Erro ao obter informações do usuário {steam_id}: {e}")
             return {}
+    
+    def build_profile_for_id(self, steam_id: str) -> Optional[Dict]:
+        """Constrói perfil simplificado para um amigo (sem salvar)"""
+        # Implementação simplificada que retorna None por padrão
+        # Pode ser expandida para construir perfis de amigos se necessário
+        return None
 
     def save_profile(self, filename: str = "steam_profile.json"):
-
         """Salva o perfil do usuário em arquivo JSON"""
         if self.user_profile:
             with open(filename, 'w', encoding="utf-8") as f:
                 json.dump(self.user_profile, f, indent=2, ensure_ascii=False)
-            print(f"✓ Perfil salvo em {filename}")
+            logger.info(f"Perfil salvo em {filename}")
     
     def print_user_profile_summary(self):
         """Imprime um resumo do perfil do usuário"""
@@ -1019,10 +1353,27 @@ class SteamRecommendationSystem:
 
 # Interface Web Simples
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "default-secret-key-for-development")
 
 # Variáveis globais para armazenar o sistema e recomendações
 recommender = None
 recommendations_data = None
+
+@app.before_request
+def init_recommender():
+    """Inicializa o sistema de recomendação na sessão do usuário"""
+    global recommender
+    if recommender is None:
+        try:
+            recommender = SteamRecommendationSystem(
+                api_key=os.getenv("STEAM_API_KEY"),
+                steam_id=os.getenv("STEAM_ID"),
+                mode="balanced"
+            )
+            logger.info("Sistema de recomendação inicializado")
+        except Exception as e:
+            logger.error(f"Erro ao inicializar recommender: {e}")
+            recommender = None
 
 @app.route('/')
 def index():
@@ -1030,7 +1381,7 @@ def index():
     global recommender, recommendations_data
     
     if recommender is None:
-        return "Sistema não inicializado. Execute o script principal primeiro."
+        return "Sistema não inicializado. Verifique as variáveis de ambiente.", 500
     
     return render_template('index.html', 
                           profile=recommender.user_profile,
@@ -1044,22 +1395,26 @@ def api_recommendations():
     global recommendations_data
     
     if recommendations_data is None:
-        return jsonify({"error": "Recomendações não geradas"})
+        return jsonify({"error": "Recomendações não geradas"}), 404
     
     return jsonify(recommendations_data)
 
 def main():
     """Função principal para demonstrar o sistema de recomendação"""
     
-    # Configurações (substitua pelos seus dados)
-    API_KEY = "x"  # Sua chave da API
-    STEAM_ID = "x"  # Seu Steam ID no formato 64 bits
+    # Obter configurações das variáveis de ambiente
+    API_KEY = os.getenv("STEAM_API_KEY")
+    STEAM_ID = os.getenv("STEAM_ID")
     
-    if API_KEY == "SUA_CHAVE_DA_API_STEAM" or STEAM_ID == "SEU_STEAM_ID":
-        print("ERRO: Configure sua chave da API e Steam ID primeiro!")
-        print("1. Obtenha sua chave da API em: https://steamcommunity.com/dev/apikey")
-        print("2. Encontre seu Steam ID em: https://steamid.io/")
-        print("3. Edite as variáveis API_KEY e STEAM_ID no código.")
+    # Verificar se as variáveis de ambiente foram definidas
+    if not API_KEY or not STEAM_ID:
+        logger.error("Configure as variáveis de ambiente STEAM_API_KEY e STEAM_ID!")
+        print("ERRO: Configure as variáveis de ambiente STEAM_API_KEY e STEAM_ID!")
+        print("1. Crie um arquivo .env na mesma pasta do script")
+        print("2. Adicione as seguintes linhas ao arquivo .env:")
+        print("   STEAM_API_KEY=sua_chave_aqui")
+        print("   STEAM_ID=seu_steam_id_aqui")
+        print("3. Substitua 'sua_chave_aqui' e 'seu_steam_id_aqui' pelos valores reais")
         return
     
     global recommender, recommendations_data
@@ -1070,23 +1425,38 @@ def main():
         print("Baseado no TCC: Sistema de Recomendação para Músicas, Filmes e Jogos")
         print()
         
-        recommender = SteamRecommendationSystem(API_KEY, STEAM_ID)
+        # ESCOLHA DO MODO
+        print("Escolha o modo de operação:")
+        print("  1. FAST - Rápido, usa cache (melhor para testes)")
+        print("  2. BALANCED - Balanceado (recomendado) ⭐")
+        print("  3. THOROUGH - Completo, analisa tudo (pode ser lento)")
+        
+        mode_choice = input("\nEscolha (1/2/3) [padrão: 2]: ").strip() or "2"
+        
+        mode_map = {"1": "fast", "2": "balanced", "3": "thorough"}
+        mode = mode_map.get(mode_choice, "balanced")
+        
+        print(f"\n✓ Modo selecionado: {mode.upper()}\n")
+        
+        recommender = SteamRecommendationSystem(API_KEY, STEAM_ID, mode=mode)
         
         # Constrói o perfil do usuário
-        user_profile = recommender.build_user_profile(limit=50, force_rebuild=True)
+        user_profile = recommender.build_user_profile(force_rebuild=False)
         recommender.print_user_profile_summary()
         
         # Gera recomendações baseadas no perfil geral
-        search_queries = [
-            "RPG",
-            "Action",
-            "Strategy",
-            "Indie",
-            "Simulation"
-        ]
+        # Pode usar queries automáticas ou especificar manualmente
+        search_queries = None  # None = usa queries automáticas baseadas no perfil
         
-        print(f"\nGerando recomendações baseadas em: {', '.join(search_queries)}")
+        # Ou especifique manualmente:
+        # search_queries = ["RPG", "Action", "Strategy", "Indie", "Simulation"]
+        
+        print(f"\nGerando recomendações...")
         recommendations_data = recommender.get_recommendations(search_queries, num_recommendations=10)
+        
+        # Salva recomendações em arquivo JSON para a web
+        with open("recommendations.json", "w", encoding="utf-8") as f:
+            json.dump(recommendations_data, f, indent=2, ensure_ascii=False)
         
         # Exibe recomendações
         print("\n=== SUAS RECOMENDAÇÕES PERSONALIZADAS ===")
@@ -1099,6 +1469,8 @@ def main():
         
         print("\n=== SISTEMA DE RECOMENDAÇÃO EXECUTADO COM SUCESSO! ===")
         print("Este exemplo demonstra como implementar o sistema descrito no seu TCC.")
+        print(f"\nModo utilizado: {mode.upper()}")
+        print(f"Jogos em cache: {len(recommender.app_details_cache)}")
         print("\nIniciando interface web...")
         print("Acesse http://127.0.0.1:5000 no seu navegador para ver as recomendações.")
         
@@ -1106,12 +1478,12 @@ def main():
         app.run(debug=False, port=5000)
         
     except Exception as e:
+        logger.error(f"Erro na execução principal: {e}")
         print(f"Erro: {e}")
         print("\nVerifique se:")
-        print("1. Sua chave da API da Steam está correta")
-        print("2. Seu Steam ID está correto")
-        print("3. Sua biblioteca de jogos está pública")
-        print("4. Sua conexão com a internet está funcionando")
+        print("1. Suas variáveis de ambiente estão configuradas corretamente")
+        print("2. Sua biblioteca de jogos está pública")
+        print("3. Sua conexão com a internet está funcionando")
 
 if __name__ == "__main__":
     main()
