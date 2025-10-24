@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suas Recomendações de Jogos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #121a25;
+            color: #c7d5e0;
+            font-family: 'Inter', sans-serif;
+        }
+        .container {
+            max-width: 1500px;
+            margin: 2rem auto;
+            padding: 2rem;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+        .header h1 {
+            color: #66c0f4;
+            font-weight: 700;
+            font-size: 2.5rem;
+        }
+        .header p {
+            color: #7a8b9d;
+            font-size: 1.1rem;
+        }
+        .recommendation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr ));
+            gap: 2rem;
+        }
+        .rec-card {
+            background-color: #1e2d40;
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .rec-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .rec-card img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-bottom: 1px solid #2a475e;
+        }
+        .rec-card-content {
+            padding: 1.5rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .rec-card h3 {
+            color: #c7d5e0;
+            font-weight: 700;
+            font-size: 1.25rem;
+            margin: 0 0 0.5rem 0;
+            line-height: 1.2;
+        }
+        .rec-card .developer {
+            color: #7a8b9d;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+        .rec-card .tags span {
+            background-color: #2a475e;
+            color: #a2d9f7;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-right: 0.25rem;
+            margin-bottom: 0.5rem;
+            display: inline-block;
+        }
+        .rec-card .reason {
+            font-style: italic;
+            color: #66c0f4;
+            margin-top: 1rem;
+            font-size: 0.95rem;
+        }
+        .rec-card .footer {
+            margin-top: auto;
+            padding-top: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #2a475e;
+        }
+        .rec-card .similarity {
+            font-weight: 700;
+            font-size: 1.2rem;
+        }
+        .rec-card .btn-steam {
+            background-color: #66c0f4;
+            color: #121a25;
+            text-decoration: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 4px;
+            font-weight: 700;
+            transition: background-color 0.2s;
+            text-align: center;
+        }
+        .rec-card .btn-steam:hover {
+            background-color: #a2d9f7;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 4rem;
+            text-align: center;
+            width: 100%;
+            color: #66c0f4;
+            text-decoration: none;
+            font-size: 1rem;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Aqui estão seus novos jogos favoritos</h1>
+            <p>Recomendações geradas com base no seu perfil de jogador.</p>
+        </header>
+
+        {% if recommendations %}
+            <div class="recommendation-grid">
+                {% for rec in recommendations %}
+                    <div class="rec-card">
+                        <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ rec.appid }}/header.jpg" alt="Imagem de {{ rec.name }}" onerror="this.style.display='none'">
+                        <div class="rec-card-content">
+                            <div>
+                                <h3>{{ rec.name }}</h3>
+                                <p class="developer">{{ rec.developer }}</p>
+                                <div class="tags">
+                                    {% for tag in rec.tags[:4] %} {# Mostra até 4 tags para um visual mais limpo #}
+                                        <span>{{ tag }}</span>
+                                    {% endfor %}
+                                </div>
+                                <p class="reason">{{ rec.recommendation_reason }}</p>
+                            </div>
+                            <div class="footer">
+                                <div class="similarity" style="color: hsl({{ rec.similarity_score * 120 }}, 80%, 60% );">
+                                    {{ "%.2f"|format(rec.similarity_score) }}
+                                </div>
+                                <a href="https://store.steampowered.com/app/{{ rec.appid }}" target="_blank" class="btn-steam">Ver na Steam</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="text-align:center; font-size: 1.2rem;">Não foi possível gerar recomendações. Tente selecionar outros jogos.</p>
+        {% endif %}
+
+        <a href="{{ url_for('steam_index' ) }}" class="back-link">← Gerar Novas Recomendações</a>
+    </div>
+</body>
+</html>
