@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Selecione seus Jogos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #121a25; color: #c7d5e0; font-family: 'Inter', sans-serif; }
+        .container { max-width: 800px; margin: 2rem auto; padding: 2rem; }
+        h1 { color: #66c0f4; font-weight: 700; text-align: center; }
+        p { color: #7a8b9d; text-align: center; margin-bottom: 2rem; }
+        .game-list { list-style-type: none; padding: 0; }
+        .game-item { background-color: #1e2d40; margin-bottom: 0.5rem; padding: 1rem 1.5rem; border-radius: 4px; display: flex; align-items: center; cursor: pointer; transition: background-color 0.2s; }
+        .game-item:hover { background-color: #2a475e; }
+        .game-item input { display: none; }
+        .game-item label { flex-grow: 1; cursor: pointer; }
+        .game-item .checkbox-custom { width: 20px; height: 20px; border: 2px solid #66c0f4; border-radius: 3px; margin-right: 1rem; display: flex; justify-content: center; align-items: center; }
+        .game-item input:checked + .checkbox-custom::after { content: '✔'; color: #66c0f4; font-size: 16px; }
+        .submit-button { background-color: #66c0f4; color: #121a25; border: none; border-radius: 4px; padding: 1rem; font-size: 1.1rem; font-weight: 700; cursor: pointer; transition: background-color 0.2s; width: 100%; margin-top: 2rem; }
+        .submit-button:hover { background-color: #a2d9f7; }
+        .submit-button:disabled { background-color: #2a475e; color: #7a8b9d; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Seus Jogos Favoritos</h1>
+        <p>Selecione pelo menos 3 jogos para criar seu perfil de recomendações.</p>
+        <form action="{{ url_for('get_recommendations' ) }}" method="post">
+            <ul class="game-list">
+                {% for game in games %}
+                <li class="game-item" onclick="document.getElementById('game-{{ game.appid }}').click()">
+                    <input type="checkbox" name="selected_games" value="{{ game.appid }}" id="game-{{ game.appid }}" onchange="updateButtonState()">
+                    <div class="checkbox-custom"></div>
+                    <label for="game-{{ game.appid }}">{{ game.name }}</label>
+                </li>
+                {% endfor %}
+            </ul>
+            <button type="submit" class="submit-button" id="generateBtn" disabled>Gerar Recomendações</button>
+        </form>
+    </div>
+    <script>
+        function updateButtonState() {
+            const checkedCount = document.querySelectorAll('input[name="selected_games"]:checked').length;
+            document.getElementById('generateBtn').disabled = checkedCount < 3;
+        }
+    </script>
+</body>
+</html>
