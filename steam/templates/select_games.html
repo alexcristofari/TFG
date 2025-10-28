@@ -3,49 +3,246 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Selecione seus Jogos</title>
+    <title>Selecione Seus Jogos e Gêneros</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
     <style>
-        body { background-color: #121a25; color: #c7d5e0; font-family: 'Inter', sans-serif; }
-        .container { max-width: 800px; margin: 2rem auto; padding: 2rem; }
-        h1 { color: #66c0f4; font-weight: 700; text-align: center; }
-        p { color: #7a8b9d; text-align: center; margin-bottom: 2rem; }
-        .game-list { list-style-type: none; padding: 0; }
-        .game-item { background-color: #1e2d40; margin-bottom: 0.5rem; padding: 1rem 1.5rem; border-radius: 4px; display: flex; align-items: center; cursor: pointer; transition: background-color 0.2s; }
-        .game-item:hover { background-color: #2a475e; }
-        .game-item input { display: none; }
-        .game-item label { flex-grow: 1; cursor: pointer; }
-        .game-item .checkbox-custom { width: 20px; height: 20px; border: 2px solid #66c0f4; border-radius: 3px; margin-right: 1rem; display: flex; justify-content: center; align-items: center; }
-        .game-item input:checked + .checkbox-custom::after { content: '✔'; color: #66c0f4; font-size: 16px; }
-        .submit-button { background-color: #66c0f4; color: #121a25; border: none; border-radius: 4px; padding: 1rem; font-size: 1.1rem; font-weight: 700; cursor: pointer; transition: background-color 0.2s; width: 100%; margin-top: 2rem; }
-        .submit-button:hover { background-color: #a2d9f7; }
-        .submit-button:disabled { background-color: #2a475e; color: #7a8b9d; cursor: not-allowed; }
+        /* Todo o CSS permanece exatamente o mesmo */
+        :root {
+            --color-background: #0a0a0a;
+            --color-surface: #141414;
+            --color-border: #262626;
+            --color-text: #a3a3a3;
+            --color-text-secondary: #525252;
+            --color-highlight: #e5e5e5;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        body {
+            background-color: var(--color-background );
+            color: var(--color-text);
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+            gap: 2rem;
+            max-width: 1200px;
+            height: 100%;
+            margin: 0 auto;
+            padding: 2rem;
+            box-sizing: border-box;
+            animation: fadeIn 0.5s ease-out;
+        }
+        .panel { display: flex; flex-direction: column; min-height: 0; }
+        .header { margin-bottom: 1.5rem; flex-shrink: 0; }
+        h1 { color: var(--color-highlight); font-weight: 900; font-size: 2rem; margin: 0; }
+        p.subtitle { color: var(--color-text); font-size: 1rem; margin-top: 0.5rem; }
+        
+        .list-wrapper {
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            background-color: var(--color-surface);
+        }
+        .item-list { list-style-type: none; padding: 0; margin: 0; }
+        .list-item {
+            padding: 0.9rem 1.25rem; display: flex; align-items: center;
+            cursor: pointer; transition: background-color 0.2s;
+            border-bottom: 1px solid var(--color-border);
+        }
+        .list-item:last-child { border-bottom: none; }
+        .list-item:hover { background-color: #1f1f1f; }
+        .list-item input { display: none; }
+        .list-item .item-name { flex-grow: 1; cursor: pointer; font-size: 0.95rem; font-weight: 500; }
+        .list-item .item-name .playtime { color: var(--color-text-secondary); font-size: 0.8rem; margin-left: 0.5rem; }
+        
+        .checkbox-custom {
+            width: 18px; height: 18px; border: 2px solid var(--color-border);
+            border-radius: 6px; margin-right: 1.25rem; display: flex;
+            justify-content: center; align-items: center; transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .list-item input:checked ~ .checkbox-custom {
+            background-color: var(--color-highlight); border-color: var(--color-highlight);
+        }
+        .list-item input:checked ~ .checkbox-custom::after {
+            content: '✔'; color: var(--color-background); font-size: 12px; font-weight: bold;
+        }
+
+        .summary-wrapper {
+            background-color: var(--color-surface);
+            border-radius: 12px;
+            border: 1px solid var(--color-border);
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .summary-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .summary-section { padding: 1.5rem; }
+        .summary-section h2 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--color-highlight);
+            margin: 0 0 1rem 0;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+        #selected-games-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+            max-height: 120px;
+        }
+        #genre-list-wrapper {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 0 1.5rem;
+        }
+        #genre-list { list-style-type: none; padding: 0; margin: 0; }
+
+        .selected-item {
+            background-color: var(--color-background);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        .summary-footer {
+            padding: 1.5rem;
+            border-top: 1px solid var(--color-border);
+            flex-shrink: 0;
+        }
+
+        .submit-button {
+            background-color: var(--color-highlight); color: var(--color-background);
+            border: none; border-radius: 8px; padding: 1rem;
+            font-size: 1rem; font-weight: 700; cursor: pointer;
+            transition: all 0.2s; width: 100%;
+        }
+        .submit-button:hover:not(:disabled) { background-color: var(--color-text); }
+        .submit-button:disabled { background-color: var(--color-border); color: var(--color-text-secondary); cursor: not-allowed; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Seus Jogos Favoritos</h1>
-        <p>Selecione pelo menos 3 jogos para criar seu perfil de recomendações.</p>
-        <form action="{{ url_for('get_recommendations' ) }}" method="post">
-            <ul class="game-list">
-                {% for game in games %}
-                <li class="game-item" onclick="document.getElementById('game-{{ game.appid }}').click()">
-                    <input type="checkbox" name="selected_games" value="{{ game.appid }}" id="game-{{ game.appid }}" onchange="updateButtonState()">
-                    <div class="checkbox-custom"></div>
-                    <label for="game-{{ game.appid }}">{{ game.name }}</label>
-                </li>
-                {% endfor %}
-            </ul>
-            <button type="submit" class="submit-button" id="generateBtn" disabled>Gerar Recomendações</button>
-        </form>
-    </div>
+    <!-- ***** A ÚNICA MUDANÇA ESTÁ AQUI ***** -->
+    <form action="{{ url_for('generate_all_recommendations') }}" method="post" class="container">
+        <!-- Painel da Esquerda (Sua Biblioteca) -->
+        <div class="panel selection-panel">
+            <div class="header">
+                <h1>Sua Biblioteca</h1>
+                <p class="subtitle">Jogos ordenados por tempo de jogo. Selecione seus favoritos.</p>
+            </div>
+            <div class="list-wrapper">
+                <ul class="item-list">
+                    {% for game in games|sort(attribute='playtime_forever', reverse=True) %}
+                    <label class="list-item" for="game-{{ game['appid'] }}">
+                        <input type="checkbox" name="selected_games" value="{{ game['appid'] }}" id="game-{{ game['appid'] }}" data-name="{{ game['name'] }}" onchange="updateSelection()">
+                        <div class="checkbox-custom"></div>
+                        <div class="item-name">
+                            {{ game['name'] }}
+                            <span class="playtime">({{ (game['playtime_forever'] / 60)|round|int }} hrs)</span>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Painel da Direita (Seleção Híbrida) -->
+        <div class="panel summary-panel">
+            <div class="header">
+                <h1>Seu Perfil</h1>
+                <p class="subtitle" id="selection-subtitle">Selecione jogos e gêneros.</p>
+            </div>
+            <div class="summary-wrapper">
+                <div class="summary-content">
+                    <div class="summary-section">
+                        <h2>Jogos Selecionados</h2>
+                        <ul id="selected-games-list"></ul>
+                    </div>
+                    <div class="summary-section" style="flex-grow: 1; display: flex; flex-direction: column; min-height: 0;">
+                        <h2>Gêneros Favoritos</h2>
+                        <div id="genre-list-wrapper">
+                            <ul id="genre-list">
+                                {% for genre in genres %}
+                                <label class="list-item" for="genre-{{ genre }}">
+                                    <input type="checkbox" name="selected_genres" value="{{ genre }}" id="genre-{{ genre }}" onchange="updateSelection()">
+                                    <div class="checkbox-custom"></div>
+                                    <div class="item-name">{{ genre }}</div>
+                                </label>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="summary-footer">
+                    <button type="submit" class="submit-button" id="generateBtn" disabled>Selecione 3 jogos e 1 gênero</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
     <script>
-        function updateButtonState() {
-            const checkedCount = document.querySelectorAll('input[name="selected_games"]:checked').length;
-            document.getElementById('generateBtn').disabled = checkedCount < 3;
+        // O JavaScript permanece o mesmo
+        function updateSelection() {
+            const selectedGamesList = document.getElementById('selected-games-list');
+            const btn = document.getElementById('generateBtn');
+            const subtitle = document.getElementById('selection-subtitle');
+            
+            selectedGamesList.innerHTML = '';
+            const checkedGameCheckboxes = document.querySelectorAll('input[name="selected_games"]:checked');
+            checkedGameCheckboxes.forEach(checkbox => {
+                const li = document.createElement('li');
+                li.className = 'selected-item';
+                li.textContent = checkbox.dataset.name;
+                selectedGamesList.appendChild(li);
+            });
+            if (checkedGameCheckboxes.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'Nenhum jogo selecionado.';
+                li.style.color = 'var(--color-text-secondary)';
+                li.style.fontStyle = 'italic';
+                selectedGamesList.appendChild(li);
+            }
+
+            const gamesCount = checkedGameCheckboxes.length;
+            const genresCount = document.querySelectorAll('input[name="selected_genres"]:checked').length;
+            
+            const gamesNeeded = 3 - gamesCount;
+            const genresNeeded = 1 - genresCount;
+            
+            const isGamesValid = gamesCount >= 3;
+            const isGenresValid = genresCount >= 1;
+
+            btn.disabled = !(isGamesValid && isGenresValid);
+
+            if (!isGamesValid && !isGenresValid) {
+                btn.textContent = `Selecione ${gamesNeeded} jogo(s) e ${genresNeeded} gênero(s)`;
+            } else if (!isGamesValid) {
+                btn.textContent = `Selecione mais ${gamesNeeded} jogo(s)`;
+            } else if (!isGenresValid) {
+                btn.textContent = `Selecione mais ${genresNeeded} gênero(s)`;
+            } else {
+                btn.textContent = `Gerar Recomendações`;
+            }
+            
+            subtitle.textContent = `${gamesCount} jogo(s) e ${genresCount} gênero(s) selecionados.`;
         }
+        updateSelection();
     </script>
 </body>
 </html>
