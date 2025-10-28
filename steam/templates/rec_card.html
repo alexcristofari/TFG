@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suas Recomendações de Jogos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-background: #0a0a0a;
+            --color-surface: #141414;
+            --color-border: #262626;
+            --color-text: #a3a3a3;
+            --color-text-secondary: #525252;
+            --color-highlight: #e5e5e5;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInUp { from { opacity: 0; transform: translateY(15px ); } to { opacity: 1; transform: translateY(0); } }
+        body { background-color: var(--color-background); color: var(--color-text); font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 4rem 2rem; animation: fadeIn 0.5s ease-out; }
+        .header { text-align: center; margin-bottom: 5rem; }
+        h1, h2 { font-weight: 900; color: var(--color-highlight); letter-spacing: -0.02em; }
+        .header h1 { font-size: 2.8rem; }
+        .header p { color: var(--color-text); font-size: 1.1rem; max-width: 600px; margin: 0.75rem auto 0 auto; }
+        .section { margin-bottom: 5rem; }
+        .section-title { font-size: 1.8rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 2rem; }
+        
+        .profile-grid { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+        .profile-tag { background-color: var(--color-surface); border: 1px solid var(--color-border); padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.9rem; font-weight: 500; }
+        .profile-tag strong { color: var(--color-highlight); }
+
+        .recommendation-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+        .rec-card {
+            background-color: var(--color-surface); border-radius: 12px; border: 1px solid var(--color-border);
+            overflow: hidden; display: flex; flex-direction: column;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+            opacity: 0; animation: slideInUp 0.6s ease-out forwards;
+        }
+        .rec-card:hover { transform: translateY(-8px); border-color: #444; }
+        .rec-card img { width: 100%; height: 140px; object-fit: cover; }
+        .rec-card-content { padding: 1.25rem; flex-grow: 1; display: flex; flex-direction: column; }
+        .rec-card h3 { font-size: 1.1rem; font-weight: 700; margin: 0 0 0.25rem 0; line-height: 1.3; color: var(--color-highlight); }
+        .rec-card .developer { color: var(--color-text-secondary); font-size: 0.85rem; margin-bottom: 1rem; }
+        .rec-card .tags span { background-color: var(--color-background); color: var(--color-text-secondary); padding: 0.25rem 0.6rem; border-radius: 99px; font-size: 0.75rem; margin: 0 0.25rem 0.25rem 0; display: inline-block; border: 1px solid var(--color-border); }
+        .rec-card .reason { font-style: italic; color: var(--color-text); margin-top: 1rem; font-size: 0.9rem; border-left: 3px solid var(--color-text-secondary); padding-left: 1rem; }
+        .rec-card .footer { margin-top: 1.5rem; padding-top: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); }
+        .rec-card .btn-steam { background-color: var(--color-highlight); color: var(--color-background); text-decoration: none; padding: 0.6rem 1rem; border-radius: 8px; font-weight: 700; transition: background-color 0.2s; }
+        .rec-card .btn-steam:hover { background-color: var(--color-text); }
+        
+        .rating-info { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+        .rating-info .similarity { font-weight: 700; font-size: 1.1rem; }
+        .rating-info .positive-reviews { font-size: 0.85rem; color: #34d399; font-weight: 500; background-color: rgba(52, 211, 153, 0.1); padding: 0.25rem 0.5rem; border-radius: 6px; }
+
+        .footer-nav { text-align: center; margin-top: 5rem; }
+        .footer-nav a { color: var(--color-text-secondary); text-decoration: none; font-weight: 500; }
+        .footer-nav a:hover { color: var(--color-highlight); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Suas Recomendações</h1>
+            {% if recommendations and (recommendations.principais or recommendations.top_generos_map or recommendations.cult_classics) %}
+                <p>Com base no seu perfil, encontramos estes jogos que você provavelmente vai adorar.</p>
+            {% else %}
+                <p>Não foi possível gerar recomendações com os critérios atuais. Tente selecionar outros jogos ou gêneros.</p>
+            {% endif %}
+        </header>
+
+        {% if profile and (profile.selected_games or profile.selected_genres) %}
+        <section class="section profile-section">
+            <h2 class="section-title">Seu Perfil de Jogador</h2>
+            <div class="profile-grid">
+                {% if profile.selected_games %}
+                    {% for game in profile.selected_games %}
+                        <div class="profile-tag"><strong>Jogo:</strong> {{ game.name }}</div>
+                    {% endfor %}
+                {% endif %}
+                {% if profile.selected_genres %}
+                    {% for genre in profile.selected_genres %}
+                        <div class="profile-tag"><strong>Gênero:</strong> {{ genre }}</div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Seção de Recomendações Principais -->
+        {% if recommendations.principais %}
+        <section class="section">
+            <h2 class="section-title">🎯 Recomendações Principais</h2>
+            <div class="recommendation-grid">
+                {% for rec in recommendations.principais %}
+                    <div class="rec-card" style="animation-delay: {{ loop.index0 * 0.05 }}s;">
+                        <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ rec.appid }}/header.jpg" alt="Imagem de {{ rec.name }}" onerror="this.style.display='none'">
+                        <div class="rec-card-content">
+                            <div>
+                                <h3>{{ rec.name }}</h3>
+                                <p class="developer">{{ rec.developer }}</p>
+                                <div class="tags">
+                                    {% for tag in rec.tags[:4] %}<span>{{ tag }}</span>{% endfor %}
+                                </div>
+                                <p class="reason">{{ rec.recommendation_reason }}</p>
+                            </div>
+                            <div class="footer">
+                                <div class="rating-info">
+                                    <div class="similarity" style="color: hsl(0, 0%, {{ 60 + rec.similarity_score * 30 }}% );">
+                                        {{ "%.2f"|format(rec.similarity_score) }}
+                                    </div>
+                                    <div class="positive-reviews">{{ rec.positive_rating_percent }}% Positivas</div>
+                                </div>
+                                <a href="https://store.steampowered.com/app/{{ rec.appid }}" target="_blank" class="btn-steam">Ver na Steam</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Seção de Top Gêneros (LÓGICA BRUTA ) -->
+        {% if recommendations.top_generos_map %}
+            {% for genre, rec_list in recommendations.top_generos_map.items() %}
+                {% if rec_list %}
+                <section class="section">
+                    <h2 class="section-title">🏆 Top de {{ genre }}</h2>
+                    <div class="recommendation-grid">
+                        {% for rec in rec_list %}
+                            <div class="rec-card" style="animation-delay: {{ loop.index0 * 0.05 }}s;">
+                                <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ rec.appid }}/header.jpg" alt="Imagem de {{ rec.name }}" onerror="this.style.display='none'">
+                                <div class="rec-card-content">
+                                    <div>
+                                        <h3>{{ rec.name }}</h3>
+                                        <p class="developer">{{ rec.developer }}</p>
+                                        <div class="tags">
+                                            {% for tag in rec.tags[:4] %}<span>{{ tag }}</span>{% endfor %}
+                                        </div>
+                                        <p class="reason">{{ rec.recommendation_reason }}</p>
+                                    </div>
+                                    <div class="footer">
+                                        <div class="rating-info">
+                                            <div class="similarity" style="color: hsl(0, 0%, {{ 60 + rec.similarity_score * 30 }}% );">
+                                                {{ "%.2f"|format(rec.similarity_score) }}
+                                            </div>
+                                            <div class="positive-reviews">{{ rec.positive_rating_percent }}% Positivas</div>
+                                        </div>
+                                        <a href="https://store.steampowered.com/app/{{ rec.appid }}" target="_blank" class="btn-steam">Ver na Steam</a>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+
+        <!-- Seção de Clássicos Cult -->
+        {% if recommendations.cult_classics %}
+        <section class="section">
+            <h2 class="section-title">💎 Clássicos Cult & Joias Indie</h2>
+            <div class="recommendation-grid">
+                {% for rec in recommendations.cult_classics %}
+                    <div class="rec-card" style="animation-delay: {{ loop.index0 * 0.05 }}s;">
+                        <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ rec.appid }}/header.jpg" alt="Imagem de {{ rec.name }}" onerror="this.style.display='none'">
+                        <div class="rec-card-content">
+                            <div>
+                                <h3>{{ rec.name }}</h3>
+                                <p class="developer">{{ rec.developer }}</p>
+                                <div class="tags">
+                                    {% for tag in rec.tags[:4] %}<span>{{ tag }}</span>{% endfor %}
+                                </div>
+                                <p class="reason">{{ rec.recommendation_reason }}</p>
+                            </div>
+                            <div class="footer">
+                                <div class="rating-info">
+                                    <div class="similarity" style="color: hsl(0, 0%, {{ 60 + rec.similarity_score * 30 }}% );">
+                                        {{ "%.2f"|format(rec.similarity_score) }}
+                                    </div>
+                                    <div class="positive-reviews">{{ rec.positive_rating_percent }}% Positivas</div>
+                                </div>
+                                <a href="https://store.steampowered.com/app/{{ rec.appid }}" target="_blank" class="btn-steam">Ver na Steam</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <footer class="footer-nav">
+            <a href="{{ url_for('steam_index' ) }}">← Gerar Novas Recomendações</a>
+        </footer>
+    </div>
+</body>
+</html>
