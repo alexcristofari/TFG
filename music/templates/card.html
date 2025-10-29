@@ -1,0 +1,21 @@
+<!-- templates/card.html -->
+<!-- Este é o "componente" reutilizável para cada card de música -->
+
+<div class="card" data-track-id="{{ rec.id }}">
+    <!-- O link <a> agora envolve apenas a imagem, para não conflitar com o botão de play -->
+    <div class="card-img-wrapper">
+        <a href="https://open.spotify.com/track/{{ rec.id }}" target="_blank" class="card-img-link">
+            <div class="card-img"></div>
+        </a>
+        <button class="play-button">
+            <svg viewBox="0 0 24 24">
+                <path class="play-icon" d="M8 5v14l11-7z"></path>
+                <path class="pause-icon" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path>
+            </svg>
+        </button>
+    </div>
+    <div class="card-content">
+        <strong class="card-title">{{ rec.name }}</strong>
+        <span class="card-subtitle">{{ rec.artists }}</span>
+    </div>
+</div>

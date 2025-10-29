@@ -1,0 +1,93 @@
+<!-- music_results.html -->
+<!-- VERSÃO FINAL - EXIBE SCORE DE SIMILARIDADE -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suas Recomendações Musicais</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --spotify-black: #121212; --spotify-gray-dark: #181818; --spotify-gray-light: #282828; --spotify-gray-text: #b3b3b3; --spotify-white: #ffffff; --spotify-green: #1DB954; }
+        body { background-color: var(--spotify-black ); color: var(--spotify-white); font-family: 'Inter', sans-serif; margin: 0; padding: 2rem; }
+        .container { width: 100%; max-width: 1400px; margin: 0 auto; }
+        h2 { font-size: 1.8rem; border-bottom: 1px solid var(--spotify-gray-light); padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+        .profile-section, .recommendation-section { margin-bottom: 3rem; }
+        .selected-tracks-container { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .selected-item { background-color: var(--spotify-gray-light); padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.5rem; }
+        .card { background-color: var(--spotify-gray-dark); padding: 1rem; border-radius: 8px; transition: background-color 0.2s; text-decoration: none; color: var(--spotify-white); position: relative; }
+        .card:hover { background-color: var(--spotify-gray-light); }
+        .card-img { width: 100%; padding-bottom: 100%; background-color: var(--spotify-gray-light); border-radius: 4px; margin-bottom: 1rem; background-size: cover; background-position: center; }
+        .card-title { font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-subtitle { font-size: 0.9rem; color: var(--spotify-gray-text); }
+        .similarity-score { position: absolute; top: 1.5rem; right: 1.5rem; background: rgba(0,0,0,0.7); color: var(--spotify-green); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; }
+        .back-link { display: inline-block; margin-top: 2rem; padding: 0.8rem 1.5rem; background-color: var(--spotify-green); color: var(--spotify-black); text-decoration: none; border-radius: 30px; font-weight: 700; transition: transform 0.2s; }
+        .back-link:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header style="text-align: center; margin-bottom: 3rem;">
+            <h1>Suas Recomendações Musicais</h1>
+            <p style="color: var(--spotify-gray-text);">Com base na sua seleção, aqui estão algumas sugestões para você explorar.</p>
+        </header>
+
+        {% if profile %}
+        <section class="profile-section">
+            <h2>Seu Perfil Musical</h2>
+            <div class="selected-tracks-container">
+                {% for track in profile %}<div class="selected-item">{{ track.name }} - {{ track.artists }}</div>{% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if recommendations %}
+            {% for category, recs in recommendations.items() if recs %}
+            <section class="recommendation-section">
+                <h2>{{ category|replace('_', ' ')|title }}</h2>
+                <div class="grid-container">
+                    {% for rec in recs %}
+                    <a href="https://open.spotify.com/track/{{ rec.id }}" target="_blank" class="card" data-track-id="{{ rec.id }}">
+                        <div class="card-img"></div>
+                        <strong class="card-title">{{ rec.name }}</strong>
+                        <span class="card-subtitle">{{ rec.artists }}</span>
+                        {% if rec.similarity_score %}
+                        <div class="similarity-score" title="Similaridade com seu perfil">{{ rec.similarity_score }}%</div>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        {% endif %}
+        
+        <div style="text-align: center;"><a href="/music" class="back-link">Gerar Novas Recomendações</a></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', ( ) => {
+            const cards = document.querySelectorAll('.card[data-track-id]');
+            const trackIds = Array.from(cards).map(card => card.dataset.trackId);
+            if (trackIds.length === 0) return;
+            fetch('/music/get-track-details', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ track_ids: trackIds })
+            })
+            .then(response => response.ok ? response.json() : Promise.reject('API call failed'))
+            .then(trackDetails => {
+                cards.forEach(card => {
+                    const trackId = card.dataset.trackId;
+                    if (trackDetails[trackId]) {
+                        card.querySelector('.card-img').style.backgroundImage = `url('${trackDetails[trackId]}')`;
+                    }
+                });
+            })
+            .catch(error => console.error('Erro ao buscar capas dos álbuns:', error));
+        });
+    </script>
+</body>
+</html>

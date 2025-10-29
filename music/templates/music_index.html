@@ -1,0 +1,218 @@
+<!-- music_index.html -->
+<!-- AJUSTE FINAL - FONTE DO TÍTULO -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recomendador de Músicas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"> <!-- Removido o peso 900 que não será usado -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --spotify-black: #121212;
+            --spotify-gray-dark: #181818;
+            --spotify-gray-light: #282828;
+            --spotify-gray-text: #b3b3b3;
+            --spotify-white: #ffffff;
+            --spotify-green: #1DB954;
+        }
+        body {
+            background-color: var(--spotify-black );
+            color: var(--spotify-white);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 2rem;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 2rem; }
+        
+        /* --- AQUI ESTÁ A CORREÇÃO --- */
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700; /* Alterado de 900 para 700 */
+            color: var(--spotify-green);
+        }
+        /* --- FIM DA CORREÇÃO --- */
+
+        .search-container { position: relative; margin-bottom: 2rem; }
+        .search-input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 3.5rem;
+            font-size: 1.1rem;
+            border-radius: 500px;
+            border: 1px solid transparent;
+            background-color: var(--spotify-gray-light);
+            color: var(--spotify-white);
+            outline: none;
+            box-sizing: border-box;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .search-input:hover { background-color: #333; }
+        .search-input:focus { border-color: var(--spotify-white); background-color: var(--spotify-gray-light); }
+        .search-container .fa-search { position: absolute; left: 1.5rem; top: 50%; transform: translateY(-50%); color: var(--spotify-gray-text); }
+        h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; }
+        #selection-container {
+            background-color: var(--spotify-gray-dark);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .selection-grid {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+        }
+        #selection-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            flex-grow: 1;
+        }
+        .selection-item {
+            background-color: var(--spotify-gray-light);
+            padding: 0.5rem 1rem;
+            border-radius: 500px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .recommend-button {
+            background-color: var(--spotify-white);
+            color: var(--spotify-black);
+            border: none;
+            padding: 0.8rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 700;
+            border-radius: 500px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .recommend-button:hover:not(:disabled) { transform: scale(1.05); }
+        .recommend-button:disabled { background-color: var(--spotify-gray-light); color: var(--spotify-gray-text); cursor: not-allowed; transform: none; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.5rem; }
+        .card { background-color: var(--spotify-gray-dark); padding: 1rem; border-radius: 8px; transition: background-color 0.2s; cursor: pointer; }
+        .card:hover { background-color: var(--spotify-gray-light); }
+        .card.selected { background-color: var(--spotify-gray-light); box-shadow: 0 0 0 3px var(--spotify-green); }
+        .card-img { width: 100%; padding-bottom: 100%; background-color: var(--spotify-gray-light); border-radius: 4px; margin-bottom: 1rem; background-size: cover; background-position: center; }
+        .card-title { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-subtitle { font-size: 0.9rem; color: var(--spotify-gray-text); }
+    </style>
+</head>
+<body>
+    <!-- O corpo do HTML e o JavaScript permanecem exatamente os mesmos -->
+    <div class="container">
+        <header>
+            <h1>Recomendador de Músicas</h1>
+        </header>
+
+        <section id="selection-container" style="display: none;">
+            <h2>Seu Perfil Musical</h2>
+            <div class="selection-grid">
+                <div id="selection-list"></div>
+                <button type="submit" id="recommend-button" class="recommend-button" disabled form="recommend-form">Gerar Recomendações</button>
+            </div>
+        </section>
+
+        <form id="recommend-form" action="/music/recommend" method="POST" style="display: none;">
+            <input type="hidden" name="track_ids_json" id="track_ids_input">
+        </form>
+
+        <div class="search-container">
+            <i class="fas fa-search"></i>
+            <input type="text" id="search-input" class="search-input" placeholder="Busque por 3 ou mais músicas para criar seu perfil...">
+        </div>
+
+        <section id="results-container">
+            <h2 id="results-title">Resultados da Busca</h2>
+            <div id="results-grid" class="grid-container"></div>
+        </section>
+    </div>
+
+    <script>
+        // Nenhuma mudança no JavaScript
+        const searchInput = document.getElementById('search-input');
+        const resultsGrid = document.getElementById('results-grid');
+        const selectionContainer = document.getElementById('selection-container');
+        const selectionList = document.getElementById('selection-list');
+        const recommendButton = document.getElementById('recommend-button');
+        const formInput = document.getElementById('track_ids_input');
+        let searchTimeout;
+        let selectedTracks = new Map();
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const query = searchInput.value.trim();
+                if (query.length > 2) {
+                    fetch(`/music/search?q=${encodeURIComponent(query)}`).then(response => response.json()).then(tracks => displayTracks(tracks));
+                } else {
+                    resultsGrid.innerHTML = '';
+                }
+            }, 300);
+        });
+        function displayTracks(tracks) {
+            resultsGrid.innerHTML = '';
+            const trackIds = tracks.map(track => track.id);
+            tracks.forEach(track => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.dataset.trackId = track.id;
+                if (selectedTracks.has(track.id)) { card.classList.add('selected'); }
+                card.innerHTML = `
+                    <div class="card-img"></div>
+                    <strong class="card-title">${track.name}</strong>
+                    <span class="card-subtitle">${track.artists}</span>
+                `;
+                card.addEventListener('click', () => handleCardClick(track, card));
+                resultsGrid.appendChild(card);
+            });
+            if (trackIds.length > 0) {
+                fetch('/music/get-track-details', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ track_ids: trackIds })
+                }).then(response => response.json()).then(details => {
+                    resultsGrid.querySelectorAll('.card').forEach(card => {
+                        const trackId = card.dataset.trackId;
+                        if (details[trackId]) {
+                            card.querySelector('.card-img').style.backgroundImage = `url('${details[trackId]}')`;
+                        }
+                    });
+                });
+            }
+        }
+        function handleCardClick(track, cardElement) {
+            if (selectedTracks.has(track.id)) {
+                selectedTracks.delete(track.id);
+                cardElement.classList.remove('selected');
+            } else {
+                selectedTracks.set(track.id, track);
+                cardElement.classList.add('selected');
+            }
+            updateSelectionUI();
+        }
+        function updateSelectionUI() {
+            if (selectedTracks.size > 0) {
+                selectionContainer.style.display = 'block';
+            } else {
+                selectionContainer.style.display = 'none';
+            }
+            selectionList.innerHTML = '';
+            selectedTracks.forEach(track => {
+                const item = document.createElement('div');
+                item.className = 'selection-item';
+                item.textContent = track.name;
+                selectionList.appendChild(item);
+            });
+            recommendButton.disabled = selectedTracks.size < 3;
+            const trackIds = Array.from(selectedTracks.keys());
+            formInput.value = JSON.stringify(trackIds);
+        }
+    </script>
+</body>
+</html>
