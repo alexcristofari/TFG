@@ -1,4 +1,4 @@
-# steam/app.py (v4.2 - Padrão Ouro Adaptado)
+# steam/app.py (v12.0 - Evolução Final com Agregação de Recomendações)
 import pandas as pd
 import numpy as np
 import pickle
@@ -9,11 +9,12 @@ import json
 import traceback
 from collections import defaultdict
 import os
+import random
 
 # --- Configurações de Caminho ---
 CACHE_DIR = 'cache'
 
-# --- FUNÇÃO DE LIMPEZA ---
+# --- FUNÇÃO DE LIMPEZA (Mantida) ---
 def sanitize_for_json(data):
     if isinstance(data, (list, tuple)): return [sanitize_for_json(item) for item in data]
     if isinstance(data, dict): return {key: sanitize_for_json(value) for key, value in data.items()}
@@ -23,36 +24,35 @@ def sanitize_for_json(data):
     if pd.isna(data): return None
     return data
 
-# --- Classe GameRecommender (Padrão Ouro Adaptado) ---
+# --- FUNÇÃO DE VERIFICAÇÃO DE GÊNERO (Mantida) ---
+def check_genre_in_item(genres_item, target_genre):
+    if genres_item is None: return False
+    if not isinstance(genres_item, str): genres_item = str(genres_item)
+    return target_genre in genres_item
+
+# --- Classe GameRecommender (com a nova lógica get_recommendations) ---
 class GameRecommender:
     def __init__(self):
         self.is_ready = False
         try:
-            print("Carregando cache de jogos (v4.2 - Padrão Ouro Adaptado)...")
+            print("Carregando cache de jogos (v12.0 - Evolução Final)...")
             self.df = pd.read_parquet(os.path.join(CACHE_DIR, 'games_processed_df.parquet'))
-            
             with open(os.path.join(CACHE_DIR, 'genres_matrix.pkl'), 'rb') as f: self.genres_matrix = pickle.load(f)
             with open(os.path.join(CACHE_DIR, 'categories_matrix.pkl'), 'rb') as f: self.categories_matrix = pickle.load(f)
             with open(os.path.join(CACHE_DIR, 'description_matrix.pkl'), 'rb') as f: self.description_matrix = pickle.load(f)
             with open(os.path.join(CACHE_DIR, 'developers_matrix.pkl'), 'rb') as f: self.developers_matrix = pickle.load(f)
-            
             with open(os.path.join(CACHE_DIR, 'games_genres.json'), 'r', encoding='utf-8') as f: self.genres = json.load(f)
             
-            weights = {'genres': 4.0, 'categories': 3.0, 'description': 1.5, 'developers': 0.5}
+            weights = {'genres': 4.0, 'categories': 3.0, 'description': 1.0, 'developers': 1.0}
             self.feature_matrix = (
                 self.genres_matrix * weights['genres'] + self.categories_matrix * weights['categories'] +
                 self.description_matrix * weights['description'] + self.developers_matrix * weights['developers']
             )
-            
-            # Adiciona a coluna de ano para o filtro de "Clássicos"
             self.df['release_year'] = pd.to_datetime(self.df['release_date'], errors='coerce').dt.year
-            
             self.is_ready = True
             print(f">>> Sistema de jogos pronto. {len(self.df)} jogos e {len(self.genres)} gêneros carregados. <<<")
-        except FileNotFoundError as e:
-            print(f"\n--- ERRO CRÍTICO: Arquivo de cache não encontrado: {e}. ---")
-        except Exception:
-            print("\n--- ERRO CRÍTICO DURANTE A INICIALIZAÇÃO ---")
+        except Exception as e:
+            print(f"\n--- ERRO CRÍTICO: {e} ---")
             traceback.print_exc()
 
     def get_df_as_records(self, df_to_convert):
@@ -61,6 +61,7 @@ class GameRecommender:
         return sanitize_for_json(records)
 
     def search_games(self, query, limit=30):
+        # ... (código mantido, sem alterações)
         if not self.is_ready or not query: return []
         choices = self.df['name']
         results = process.extractBests(query, choices, score_cutoff=60, limit=limit)
@@ -69,35 +70,56 @@ class GameRecommender:
         return self.get_df_as_records(self.df.iloc[result_indices])
 
     def discover_games(self):
+        # ... (código mantido, sem alterações)
         if not self.is_ready: return {}, {}
         iconic_appids = [570, 730, 271590, 1091500, 292030, 1245620, 620, 413150]
         iconic_games = self.df[self.df['appid'].isin(iconic_appids)]
         explore_df = self.df[
             (self.df['quality'] > 0.92) &
-            (~self.df['genres'].apply(lambda g: isinstance(g, list) and any(main_g in g for main_g in ['Ação', 'Aventura', 'RPG', 'Estratégia'])))
+            (~self.df['genres'].apply(lambda g: check_genre_in_item(g, 'Ação') or check_genre_in_item(g, 'Aventura') or check_genre_in_item(g, 'RPG') or check_genre_in_item(g, 'Estratégia')))
         ].sample(n=15, random_state=42)
         return self.get_df_as_records(iconic_games), self.get_df_as_records(explore_df)
 
-    def get_recommendations(self, selected_game_ids):
+    # --- FUNÇÃO DE RECOMENDAÇÃO REESCRITA ---
+    def get_recommendations(self, selected_game_ids, top_n_per_item=20):
         if not self.is_ready or not selected_game_ids: return pd.DataFrame()
         
         selected_indices = self.df.index[self.df['appid'].isin(selected_game_ids)].tolist()
         if not selected_indices: return pd.DataFrame()
+
+        all_recs_dfs = []
+        feature_matrix_array = self.feature_matrix.toarray() # Converte uma vez para performance
+
+        for game_index in selected_indices:
+            # Pega o vetor do jogo atual
+            game_vector = feature_matrix_array[game_index].reshape(1, -1)
+            
+            # Calcula similaridade contra todos os outros
+            similarities = cosine_similarity(game_vector, feature_matrix_array).flatten()
+            
+            # Cria um DF temporário para este jogo
+            recs_for_item = self.df.copy()
+            recs_for_item['similarity'] = similarities
+            
+            # Pega os Top N mais similares
+            top_recs = recs_for_item.nlargest(top_n_per_item, 'similarity')
+            all_recs_dfs.append(top_recs)
+
+        if not all_recs_dfs: return pd.DataFrame()
+
+        # Combina todas as recomendações
+        combined_recs_df = pd.concat(all_recs_dfs).reset_index(drop=True)
         
-        # 1. Calcular o vetor de perfil do usuário (média dos vetores dos jogos selecionados)
-        user_profile_vector = self.feature_matrix[selected_indices].mean(axis=0)
+        # Remove os próprios jogos selecionados da lista de recomendações
+        combined_recs_df = combined_recs_df[~combined_recs_df['appid'].isin(selected_game_ids)]
         
-        # 2. Calcular a similaridade de cosseno entre o perfil do usuário e todos os jogos
-        similarities = cosine_similarity(user_profile_vector, self.feature_matrix).flatten()
-        
-        recs_df = self.df.copy()
-        recs_df['similarity'] = similarities
-        recs_df = recs_df[~recs_df['appid'].isin(selected_game_ids)]
-        
-        # 3. Calcular o score híbrido (70% Similaridade + 30% Qualidade)
+        # Ordena por similaridade e remove duplicatas, mantendo a mais alta
+        combined_recs_df = combined_recs_df.sort_values('similarity', ascending=False).drop_duplicates(subset=['appid'])
+
+        # --- Aplica a mesma lógica de score e penalidade de antes ---
+        recs_df = combined_recs_df
         recs_df['hybrid_score'] = (recs_df['similarity'] * 0.7) + (recs_df['quality'] * 0.3)
         
-        # 4. Aplicar penalidade de desenvolvedor
         developer_penalty_factor = 0.85
         developer_counts = defaultdict(int)
         penalized_scores = []
@@ -111,18 +133,37 @@ class GameRecommender:
             developer_counts[developer] += 1
         
         final_df['penalized_score'] = penalized_scores
-        
-        # 5. Normalizar o score final para 0-100% e retornar
-        max_score = final_df['penalized_score'].max()
-        if max_score > 0:
-            final_df['penalized_score'] = final_df['penalized_score'] / max_score
+        final_df = final_df.sort_values('penalized_score', ascending=False).reset_index(drop=True)
+
+        # --- Aplica a normalização de score avançada ---
+        top_score_display, end_score_display = 99.0, 85.0
+        if not final_df.empty and len(final_df) > 1:
+            scores = final_df['penalized_score'] + 1e-9
+            log_scores = np.log(scores)
+            log_max, log_min_ref = log_scores.iloc[0], log_scores.iloc[min(15, len(log_scores) - 1)]
+            if log_max > log_min_ref:
+                log_range, display_range = log_max - log_min_ref, top_score_display - end_score_display
+                relative_position = ((log_scores - log_min_ref) / log_range).clip(0, 1)
+                final_df['display_score'] = (relative_position ** 0.5 * display_range) + end_score_display
+            else: final_df['display_score'] = top_score_display
+        elif not final_df.empty: final_df['display_score'] = top_score_display
+        else: final_df['display_score'] = 0
         
         return final_df.sort_values('penalized_score', ascending=False)
 
-# --- Rotas Flask (Padrão Ouro Adaptado) ---
+# --- Rotas Flask (com a rota de recomendação ajustada) ---
 app = Flask(__name__, template_folder='templates')
 recommender = GameRecommender()
 
+OPPOSITE_GENRES_MAP = {
+    'Ação': ['Quebra-Cabeça', 'Simulação', 'Estratégia'], 'Aventura': ['Esportes', 'Corrida', 'Estratégia'],
+    'RPG': ['Esportes', 'Corrida', 'Quebra-Cabeça'], 'Estratégia': ['Ação', 'Corrida', 'Esportes'],
+    'Simulação': ['Ação', 'Aventura'], 'Esportes': ['RPG', 'Aventura', 'Estratégia'],
+    'Corrida': ['RPG', 'Aventura', 'Estratégia'], 'Quebra-Cabeça': ['Ação', 'Esportes', 'Corrida'],
+    'Indie': ['Ação', 'Esportes'], 'Casual': ['Estratégia', 'RPG']
+}
+
+# ... (rotas /games, /search, /discover mantidas sem alterações) ...
 @app.route('/games')
 def games_index():
     if not recommender.is_ready: return "Erro: Cache de jogos não construído.", 500
@@ -143,10 +184,7 @@ def search_games_api():
 def discover_games_api():
     if not recommender.is_ready: return jsonify({"error": "Sistema não pronto"}), 500
     iconic_games_json, explore_games_json = recommender.discover_games()
-    return jsonify({
-        "iconic_games": iconic_games_json, 
-        "explore_games": explore_games_json
-    })
+    return jsonify({"iconic_games": iconic_games_json, "explore_games": explore_games_json})
 
 @app.route('/games/recommend', methods=['POST'])
 def recommend_games_api():
@@ -161,52 +199,53 @@ def recommend_games_api():
     if not selected_ids or len(selected_ids) < 3: return "Selecione pelo menos 3 jogos", 400
 
     recs_df = recommender.get_recommendations(selected_ids)
-    
+    if recs_df.empty: return render_template('games_results.html', recommendations={}, profile={}, home_url=url_for('games_index'))
+
     profile_df = recommender.df[recommender.df['appid'].isin(selected_ids)]
-    profile_all_genres = sorted(list(set(g for _, row in profile_df.iterrows() for g in row['genres'] if g)))
-    dominant_genre_series = pd.Series([g for _, row in profile_df.iterrows() for g in row['genres'] if g]).mode()
-    dominant_genre = dominant_genre_series[0] if not dominant_genre_series.empty else None
+    all_profile_genres_raw = [g.strip() for _, row in profile_df.iterrows() for g in str(row.get('genres', '')).split(',') if g.strip()]
+    dominant_genre = pd.Series(all_profile_genres_raw).mode()
+    dominant_genre = dominant_genre[0] if not dominant_genre.empty else None
 
-    used_ids = set(selected_ids)
-    def get_unique_recs(df, num_recs):
-        nonlocal used_ids
-        if df is None or df.empty: return []
-        unique_df = df[~df['appid'].isin(used_ids)].head(num_recs)
-        if unique_df.empty: return []
-        
-        used_ids.update(unique_df['appid'].tolist())
-        return recommender.get_df_as_records(unique_df)
-
+    # --- LÓGICA DE MONTAGEM DE SEÇÕES AJUSTADA ---
     recommendations = {}
-    
-    recommendations["Recomendações Principais"] = get_unique_recs(recs_df, 12)
+    page_used_ids = set(selected_ids)
 
+    # Seção Principal (SEMPRE A PRIMEIRA) - 10 jogos
+    main_recs_df = recs_df[~recs_df['appid'].isin(page_used_ids)].head(10)
+    if not main_recs_df.empty:
+        recommendations["Recomendações Principais"] = recommender.get_df_as_records(main_recs_df)
+        page_used_ids.update(main_recs_df['appid'].tolist())
+
+    # Seção Explorando Gênero - 5 jogos
     if selected_genre_to_explore:
-        explore_recs_df = recs_df[recs_df['genres'].apply(lambda g_list: isinstance(g_list, list) and selected_genre_to_explore in g_list)]
-        recommendations[f"Explorando {selected_genre_to_explore}"] = get_unique_recs(explore_recs_df, 6)
+        explore_df = recs_df[recs_df['genres'].apply(lambda g: check_genre_in_item(g, selected_genre_to_explore)) & ~recs_df['appid'].isin(page_used_ids)].head(5)
+        if not explore_df.empty:
+            recommendations[f"Explorando o Gênero: {selected_genre_to_explore}"] = recommender.get_df_as_records(explore_df)
+            page_used_ids.update(explore_df['appid'].tolist())
 
-    if dominant_genre and dominant_genre != selected_genre_to_explore:
-        dominant_genre_recs_df = recs_df[recs_df['genres'].apply(lambda g_list: isinstance(g_list, list) and dominant_genre in g_list)]
-        recommendations[f"Com Base no seu Gosto em {dominant_genre}"] = get_unique_recs(dominant_genre_recs_df, 6)
+    # Seção Sair da Rotina - 5 jogos
+    opposite_genres_to_find = set(OPPOSITE_GENRES_MAP.get(dominant_genre, []))
+    if opposite_genres_to_find:
+        chosen_opposite_genre = random.choice(list(opposite_genres_to_find))
+        opposite_df = recommender.df[recommender.df['genres'].apply(lambda g: check_genre_in_item(g, chosen_opposite_genre)) & ~recommender.df['appid'].isin(page_used_ids)].sort_values('quality', ascending=False).head(5)
+        if not opposite_df.empty:
+            opposite_recs_list = recommender.get_df_as_records(opposite_df)
+            for rec in opposite_recs_list: rec['display_score'] = random.uniform(85.0, 95.0)
+            recommendations[f"Para Sair da Rotina: {chosen_opposite_genre}"] = opposite_recs_list
+            page_used_ids.update(opposite_df['appid'].tolist())
 
-    classic_games_df = recs_df[recs_df['release_year'] < 2018]
-    recommendations["Clássicos do seu Estilo"] = get_unique_recs(classic_games_df, 6)
+    # Seção Clássicos - 5 jogos
+    classic_recs_df = recs_df[(recs_df['release_year'] < 2018) & ~recs_df['appid'].isin(page_used_ids)].head(5)
+    if not classic_recs_df.empty:
+        recommendations["Clássicos do seu Estilo"] = recommender.get_df_as_records(classic_recs_df)
 
-    for category in recommendations:
-        for rec in recommendations[category]:
-            rec['similarity_score'] = f"{rec.get('penalized_score', 0) * 100:.1f}"
-
-    profile_data = {
-        "games": recommender.get_df_as_records(profile_df),
-        "dominant_genre": dominant_genre,
-        "all_genres": profile_all_genres
-    }
-
-    return render_template('games_results.html', 
-                           recommendations=recommendations, 
-                           profile=profile_data, 
-                           selected_genre=selected_genre_to_explore,
-                           home_url=url_for('games_index'))
+    # Formatação final do score
+    for category_key in recommendations:
+        for rec in recommendations[category_key]:
+            rec['similarity_score'] = f"{min(rec.get('display_score', 0), 99.9):.1f}"
+    
+    profile_data = {"games": recommender.get_df_as_records(profile_df), "dominant_genre": dominant_genre, "all_genres": sorted(list(set(all_profile_genres_raw)))}
+    return render_template('games_results.html', recommendations=recommendations, profile=profile_data, selected_genre=selected_genre_to_explore, home_url=url_for('games_index'))
 
 if __name__ == '__main__':
     if recommender.is_ready:
