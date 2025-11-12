@@ -1,0 +1,36 @@
+<!-- movie_card.html (Oculta nota 0) -->
+<style>
+    /* ... (o CSS não muda) ... */
+    .movie-card { background-color: var(--theme-dark-gray, #222); border-radius: 4px; overflow: hidden; position: relative; transition: transform 0.2s; text-decoration: none; color: var(--theme-white, #fff); display: flex; flex-direction: column; }
+    .movie-card:hover { transform: scale(1.05); z-index: 10; }
+    .movie-card-img-wrapper { position: relative; width: 100%; padding-bottom: 150%; }
+    .movie-card-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center; }
+    .movie-card-info { padding: 1rem; flex-grow: 1; display: flex; flex-direction: column; }
+    .movie-card-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem; flex-grow: 1; }
+    .movie-card-details { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--theme-text-gray, #b3b3b3); }
+    .movie-card-genres { margin-top: 0.5rem; font-size: 0.75rem; color: var(--theme-text-gray, #b3b3b3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .movie-card-rating { font-weight: 700; }
+    .movie-card-similarity { position: absolute; top: 8px; right: 8px; background-color: var(--theme-primary, #E50914); color: white; padding: 4px 8px; font-size: 0.8rem; font-weight: 700; border-radius: 4px; }
+</style>
+
+<a href="https://www.themoviedb.org/movie/{{ rec.id }}" target="_blank" class="movie-card">
+    <div class="movie-card-img-wrapper">
+        <div class="movie-card-img" style="background-image: url('{{ rec.poster_url }}' )"></div>
+        {% if rec.similarity_score is defined %}
+        <div class="movie-card-similarity" title="Força da Recomendação">{{ rec.similarity_score|int }}%</div>
+        {% endif %}
+    </div>
+    <div class="movie-card-info">
+        <strong class="movie-card-title">{{ rec.title }}</strong>
+        {% if rec.genres_list %}
+        <div class="movie-card-genres">{{ rec.genres_list|join(' · ') }}</div>
+        {% endif %}
+        <div class="movie-card-details">
+            <span>{{ (rec.release_date.split('-')[0]) if rec.release_date else '' }}</span>
+            <!-- AQUI ESTÁ A CORREÇÃO -->
+            {% if rec.vote_average > 0 %}
+            <span class="movie-card-rating">⭐ {{ "%.1f"|format(rec.vote_average) }}</span>
+            {% endif %}
+        </div>
+    </div>
+</a>

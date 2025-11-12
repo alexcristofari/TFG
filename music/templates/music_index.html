@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recomendador de Músicas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css"/>
+    <style>
+        :root {
+            --spotify-black: #121212; --spotify-gray-dark: #181818; --spotify-gray-light: #282828;
+            --spotify-gray-text: #b3b3b3; --spotify-white: #ffffff; --spotify-green: #1DB954;
+        }
+        body {
+            background-color: var(--spotify-black ); color: var(--spotify-white);
+            font-family: 'Lato', 'Montserrat', sans-serif; margin: 0; padding: 2rem;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 2rem; }
+        header h1 { font-size: 2.5rem; font-weight: 700; color: var(--spotify-white); }
+        header p { color: var(--spotify-gray-text); font-size: 1.1rem; }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        .search-container { position: relative; }
+        .search-input, select[name="genre"] {
+            width: 100%; padding: 1rem; font-size: 1rem;
+            border-radius: 500px; border: none; background-color: var(--spotify-gray-light);
+            color: var(--spotify-white); outline: none; box-sizing: border-box;
+        }
+        .search-input { padding-left: 3.5rem; }
+        select[name="genre"] {
+            padding: 1rem;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23b3b3b3%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22/%3E%3C/svg%3E' );
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: .65em auto;
+            padding-right: 2.5rem;
+        }
+        .search-container .fa-search { position: absolute; left: 1.5rem; top: 50%; transform: translateY(-50%); color: var(--spotify-gray-text); }
+        
+        #selection-container {
+            background-color: var(--spotify-gray-dark); border-radius: 8px; padding: 1.5rem;
+            margin-bottom: 2rem; display: none;
+        }
+        .selection-grid { display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; }
+        #selection-list { display: flex; flex-wrap: wrap; gap: 0.75rem; flex-grow: 1; }
+        .selection-item { background-color: var(--spotify-gray-light); padding: 0.5rem 1rem; border-radius: 500px; font-size: 0.9rem; font-weight: 700; }
+        .recommend-button {
+            background-color: var(--spotify-green); color: var(--spotify-black); border: none;
+            padding: 1rem 2rem; font-size: 1rem; font-weight: 700; border-radius: 500px;
+            cursor: pointer; transition: transform 0.2s, background-color 0.2s;
+        }
+        .recommend-button:hover:not(:disabled) { transform: scale(1.05); }
+        .recommend-button:disabled { background-color: var(--spotify-gray-light); color: var(--spotify-gray-text); cursor: not-allowed; }
+
+        h2 { font-size: 1.5rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
+        
+        .card {
+            background-color: var(--spotify-gray-dark); padding: 1rem; border-radius: 8px;
+            transition: background-color 0.2s; cursor: pointer; position: relative;
+            overflow: hidden;
+        }
+        .card:hover { background-color: var(--spotify-gray-light); }
+        .card.selected { box-shadow: 0 0 0 3px var(--spotify-green); }
+        
+        .card-img-wrapper { position: relative; margin-bottom: 1rem; }
+        .card-img {
+            width: 100%; padding-bottom: 100%; background-color: var(--spotify-gray-light);
+            border-radius: 4px; background-size: cover; background-position: center;
+        }
+        .card-title { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.25rem; }
+        .card-subtitle { font-size: 0.9rem; color: var(--spotify-gray-text); }
+
+        .play-button {
+            position: absolute; bottom: 8px; right: 8px; width: 48px; height: 48px;
+            background-color: var(--spotify-green); border-radius: 50%; border: none;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            opacity: 0; transform: translateY(8px); transition: opacity 0.3s, transform 0.3s;
+        }
+        .card:hover .play-button { opacity: 1; transform: translateY(0); }
+        .play-button svg { width: 24px; height: 24px; fill: var(--spotify-black); }
+        .pause-icon { display: none; }
+
+        .discover-section { margin-top: 3rem; overflow: hidden; }
+        .swiper-slide { width: 200px; }
+        .swiper-button-next, .swiper-button-prev { color: var(--spotify-white); }
+
+        .search-results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1.5rem;
+        }
+        .search-results-grid .card {
+            width: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Recomendador de Músicas</h1>
+            <p>Escolha 3 ou mais músicas para criar seu perfil e explore novos gêneros.</p>
+        </header>
+
+        <form id="recommend-form" action="/music/recommend" method="POST">
+            <input type="hidden" name="track_ids_json" id="track_ids_input">
+            
+            <div class="form-grid">
+                <div class="search-container">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-input" class="search-input" placeholder="Busque por uma música ou artista...">
+                </div>
+                <select name="genre">
+                    <option value="">-- Gênero para Explorar (Opcional) --</option>
+                    {% for genre in genres %}
+                    <option value="{{ genre }}">{{ genre|title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <section id="selection-container">
+                <h2>Seu Perfil Musical</h2>
+                <div class="selection-grid">
+                    <div id="selection-list"></div>
+                    <button type="submit" id="recommend-button" class="recommend-button" disabled>Gerar Recomendações</button>
+                </div>
+            </section>
+        </form>
+
+        <section id="results-container">
+            <!-- Conteúdo dinâmico -->
+        </section>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+    <script>
+        const searchInput = document.getElementById('search-input' );
+        const resultsContainer = document.getElementById('results-container');
+        const selectionContainer = document.getElementById('selection-container');
+        const selectionList = document.getElementById('selection-list');
+        const recommendButton = document.getElementById('recommend-button');
+        const formInput = document.getElementById('track_ids_input');
+        
+        let searchTimeout;
+        let selectedTracks = new Map();
+        let currentAudio = null;
+        let currentPlayingButton = null;
+
+        function createCard(track, isCarousel) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            if (isCarousel) {
+                card.classList.add('swiper-slide');
+            }
+            card.dataset.trackId = track.id;
+            if (selectedTracks.has(track.id)) { card.classList.add('selected'); }
+
+            card.innerHTML = `
+                <div class="card-img-wrapper">
+                    <div class="card-img" data-track-id="${track.id}"></div>
+                    <button class="play-button">
+                        <svg viewBox="0 0 24 24"><path class="play-icon" d="M8 5v14l11-7z"></path><path class="pause-icon" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                    </button>
+                </div>
+                <div class="card-content">
+                    <strong class="card-title">${track.name}</strong>
+                    <span class="card-subtitle">${track.artists}</span>
+                </div>
+            `;
+
+            const playButton = card.querySelector('.play-button');
+            card.addEventListener('click', (e) => {
+                if (!playButton.contains(e.target)) handleCardClick(track, card);
+            });
+            playButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const previewUrl = playButton.dataset.previewUrl;
+                if (previewUrl && previewUrl !== 'null') {
+                    togglePlay(previewUrl, playButton);
+                } else {
+                    alert('Prévia não disponível para esta música.');
+                }
+            });
+            return card;
+        }
+
+        function togglePlay(url, button) {
+            const playIcon = button.querySelector('.play-icon');
+            const pauseIcon = button.querySelector('.pause-icon');
+
+            if (currentAudio && currentAudio.src === url && !currentAudio.paused) {
+                currentAudio.pause();
+            } else {
+                if (currentAudio) { currentAudio.pause(); }
+                currentAudio = new Audio(url);
+                currentAudio.play().catch(e => console.error("Erro ao tocar áudio:", e));
+                currentPlayingButton = button;
+
+                currentAudio.onplay = () => {
+                    document.querySelectorAll('.play-button').forEach(btn => {
+                        btn.querySelector('.play-icon').style.display = 'block';
+                        btn.querySelector('.pause-icon').style.display = 'none';
+                    });
+                    playIcon.style.display = 'none';
+                    pauseIcon.style.display = 'block';
+                };
+
+                currentAudio.onpause = currentAudio.onended = () => {
+                    if(currentPlayingButton === button) {
+                        playIcon.style.display = 'block';
+                        pauseIcon.style.display = 'none';
+                        currentAudio = null;
+                        currentPlayingButton = null;
+                    }
+                };
+            }
+        }
+
+        function handleCardClick(track, cardElement) {
+            if (selectedTracks.has(track.id)) {
+                selectedTracks.delete(track.id);
+                cardElement.classList.remove('selected');
+            } else {
+                selectedTracks.set(track.id, track);
+                cardElement.classList.add('selected');
+            }
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            selectionContainer.style.display = selectedTracks.size > 0 ? 'block' : 'none';
+            selectionList.innerHTML = '';
+            selectedTracks.forEach(track => {
+                const item = document.createElement('div');
+                item.className = 'selection-item';
+                item.textContent = track.name;
+                selectionList.appendChild(item);
+            });
+            recommendButton.disabled = selectedTracks.size < 3;
+            formInput.value = JSON.stringify(Array.from(selectedTracks.keys()));
+        }
+
+        function fetchAndSetDetails(trackIds, container) {
+            if (trackIds.length === 0) return;
+            fetch('/music/get-track-details', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ track_ids: trackIds })
+            })
+            .then(response => response.json())
+            .then(details => {
+                container.querySelectorAll('.card').forEach(card => {
+                    const trackId = card.dataset.trackId;
+                    if (details[trackId]) {
+                        if (details[trackId].image_url) {
+                            card.querySelector('.card-img').style.backgroundImage = `url('${details[trackId].image_url}')`;
+                        }
+                        if (details[trackId].preview_url) {
+                            card.querySelector('.play-button').dataset.previewUrl = details[trackId].preview_url;
+                        }
+                    }
+                });
+            }).catch(err => console.error("Falha ao buscar detalhes:", err));
+        }
+
+        function showSearchResults(query) {
+            fetch(`/music/search?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(tracks => {
+                    resultsContainer.innerHTML = '<h2>Resultados da Busca</h2><div class="search-results-grid"></div>';
+                    const grid = resultsContainer.querySelector('.search-results-grid');
+                    if (tracks.length === 0) {
+                        grid.innerHTML = '<p style="color: var(--spotify-gray-text); text-align: center;">Nenhum resultado encontrado.</p>';
+                        return;
+                    }
+                    tracks.forEach(track => grid.appendChild(createCard(track, false)));
+                    fetchAndSetDetails(tracks.map(t => t.id), grid);
+                });
+        }
+
+        async function showDiscoverResults() {
+            const response = await fetch('/music/discover');
+            const data = await response.json();
+            let html = '';
+            
+            // Carrossel 1: Ícones Globais
+            if (data.iconic_tracks && data.iconic_tracks.length > 0) {
+                html += `<div class="discover-section"><h2>Ícones Globais</h2><div class="swiper" id="swiper-iconic"><div class="swiper-wrapper"></div><div class="swiper-button-prev"></div><div class="swiper-button-next"></div></div></div>`;
+            }
+            // Carrossel 2: Para Explorar
+            if (data.explore_tracks && data.explore_tracks.length > 0) {
+                html += `<div class="discover-section"><h2>Para Explorar</h2><div class="swiper" id="swiper-explore"><div class="swiper-wrapper"></div><div class="swiper-button-prev"></div><div class="swiper-button-next"></div></div></div>`;
+            }
+            resultsContainer.innerHTML = html;
+
+            const iconicWrapper = document.querySelector('#swiper-iconic .swiper-wrapper');
+            if(iconicWrapper) {
+                data.iconic_tracks.forEach(track => iconicWrapper.appendChild(createCard(track, true)));
+                fetchAndSetDetails(data.iconic_tracks.map(t => t.id), iconicWrapper);
+            }
+
+            const exploreWrapper = document.querySelector('#swiper-explore .swiper-wrapper');
+            if(exploreWrapper) {
+                data.explore_tracks.forEach(track => exploreWrapper.appendChild(createCard(track, true)));
+                fetchAndSetDetails(data.explore_tracks.map(t => t.id), exploreWrapper);
+            }
+
+            const swiperOptions = {
+                slidesPerView: 'auto',
+                spaceBetween: 16,
+                navigation: {
+                    nextEl: '.swiper-button-next',
+                    prevEl: '.swiper-button-prev',
+                },
+                autoplay: {
+                    delay: 3500,
+                    disableOnInteraction: false,
+                    pauseOnMouseEnter: true,
+                },
+            };
+            
+            if (document.querySelector('#swiper-iconic')) {
+                new Swiper('#swiper-iconic', { ...swiperOptions, navigation: { nextEl: '#swiper-iconic .swiper-button-next', prevEl: '#swiper-iconic .swiper-button-prev' } });
+            }
+            if (document.querySelector('#swiper-explore')) {
+                new Swiper('#swiper-explore', { ...swiperOptions, navigation: { nextEl: '#swiper-explore .swiper-button-next', prevEl: '#swiper-explore .swiper-button-prev' } });
+            }
+        }
+
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const query = searchInput.value.trim();
+                if (query.length > 2) {
+                    showSearchResults(query);
+                } else {
+                    showDiscoverResults();
+                }
+            }, 300);
+        });
+
+        document.addEventListener('DOMContentLoaded', showDiscoverResults);
+        updateSelectionUI();
+    </script>
+</body>
+</html>

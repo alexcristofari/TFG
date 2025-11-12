@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suas Recomendações Musicais</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --spotify-black: #121212; --spotify-gray-dark: #181818; --spotify-gray-light: #282828;
+            --spotify-gray-text: #b3b3b3; --spotify-white: #ffffff; --spotify-green: #1DB954;
+        }
+        body {
+            background-color: var(--spotify-black  ); color: var(--spotify-white);
+            font-family: 'Lato', 'Montserrat', sans-serif; margin: 0; padding: 2rem;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header h1 { font-size: 2.2rem; text-align: center; margin-bottom: 3rem; color: var(--spotify-white); }
+        h2 { font-size: 1.8rem; color: var(--spotify-white); border-bottom: 1px solid var(--spotify-gray-light); padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+        .profile-section { background-color: var(--spotify-gray-dark); margin-bottom: 3rem; padding: 1.5rem; border-radius: 8px; }
+        .profile-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+        .profile-header h2 { border-bottom: none; margin: 0; font-size: 1.2rem; }
+        .profile-badges { display: flex; gap: 0.75rem; }
+        .badge { padding: 0.6rem 1.2rem; border-radius: 500px; font-weight: 700; font-size: 0.9rem; }
+        .badge.dominant { background-color: var(--spotify-green); color: var(--spotify-black); }
+        .badge.exploring { border: 2px solid var(--spotify-green); color: var(--spotify-green); }
+        .profile-list { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+        .profile-item { background-color: var(--spotify-gray-light); padding: 0.5rem 1rem; border-radius: 500px; font-size: 0.9rem; font-weight: 700; }
+        .profile-genres-container { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--spotify-gray-light); }
+        .profile-genres-title { font-size: 0.9rem; color: var(--spotify-gray-text); margin: 0 0 0.75rem 0; font-weight: 400; }
+        .profile-item.genre-item { background-color: #333; text-transform: capitalize; }
+        .recommendation-section { margin-bottom: 3rem; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.5rem; }
+        .card {
+            background-color: var(--spotify-gray-dark); border-radius: 8px;
+            transition: background-color 0.2s; position: relative; text-decoration: none; color: var(--spotify-white);
+            overflow: hidden;
+        }
+        .card:hover { background-color: var(--spotify-gray-light); }
+        .card-img-wrapper { position: relative; }
+        .card-img {
+            width: 100%; padding-bottom: 100%; background-color: var(--spotify-gray-light);
+            background-size: cover; background-position: center;
+        }
+        .card-content { padding: 1rem; }
+        .card-title { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.25rem; }
+        .card-subtitle { font-size: 0.9rem; color: var(--spotify-gray-text); }
+        .card-subtitle .genre { font-weight: 700; color: var(--spotify-green); text-transform: capitalize; margin-left: 0.5rem; }
+        .recommendation-card-score {
+            position: absolute; top: 0.75rem; right: 0.75rem;
+            background-color: rgba(0, 0, 0, 0.6); color: var(--spotify-green);
+            padding: 0.3rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.9rem;
+            font-family: 'Lato', 'Montserrat', sans-serif; border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .play-button {
+            position: absolute; bottom: 8px; right: 8px; width: 48px; height: 48px;
+            background-color: var(--spotify-green); border-radius: 50%; border: none;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            opacity: 0; transform: translateY(8px); transition: opacity 0.3s, transform 0.3s;
+        }
+        .card:hover .play-button { opacity: 1; transform: translateY(0); }
+        .play-button svg { width: 24px; height: 24px; fill: var(--spotify-black); }
+        .pause-icon { display: none; }
+        .back-link {
+            display: inline-block; margin-top: 2rem; padding: 1rem 2rem;
+            background-color: var(--spotify-green); color: var(--spotify-black);
+            text-decoration: none; border-radius: 500px; font-weight: 700; transition: transform 0.2s;
+        }
+        .back-link:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header><h1>Suas Recomendações Musicais</h1></header>
+        {% if profile %}
+        <section class="profile-section">
+            <div class="profile-header">
+                <h2>Seu Perfil Musical</h2>
+                <div class="profile-badges">
+                    {% if profile.dominant_genre %}<div class="badge dominant">Gênero Dominante: {{ profile.dominant_genre|title }}</div>{% endif %}
+                    {% if selected_genre %}<div class="badge exploring">Explorando: {{ selected_genre|title }}</div>{% endif %}
+                </div>
+            </div>
+            <div class="profile-list">
+                {% for track in profile.tracks %}<div class="profile-item">{{ track.name }} - {{ track.artists }}</div>{% endfor %}
+            </div>
+            {% if profile.all_genres %}
+            <div class="profile-genres-container">
+                <h3 class="profile-genres-title">Gêneros encontrados na sua seleção:</h3>
+                <div class="profile-list">
+                    {% for genre in profile.all_genres %}<div class="profile-item genre-item">{{ genre|title }}</div>{% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+        {% if recommendations %}
+            {% for category, recs in recommendations.items() if recs %}
+            <section class="recommendation-section">
+                <h2>{{ category }}</h2>
+                <div class="grid-container">
+                    {% for rec in recs %}
+                    <div class="card" data-track-id="{{ rec.id }}">
+                        <div class="card-img-wrapper">
+                            <a href="https://open.spotify.com/track/{{ rec.id }}" target="_blank"><div class="card-img"></div></a>
+                            <button class="play-button">
+                                <svg viewBox="0 0 24 24">
+                                    <path class="play-icon" d="M8 5v14l11-7z"></path>
+                                    <path class="pause-icon" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="card-content">
+                            <strong class="card-title">{{ rec.name }}</strong>
+                            <span class="card-subtitle">{{ rec.artists }} <span class="genre">({{ rec.genres|title }}  )</span></span>
+                        </div>
+                        {% if rec.similarity_score %}<div class="recommendation-card-score">{{ rec.similarity_score }}%</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        {% endif %}
+        <div style="text-align: center;"><a href="/music" class="back-link">Fazer Nova Recomendação</a></div>
+    </div>
+
+    <!-- *** ALTERAÇÃO: SCRIPT ADICIONADO AQUI *** -->
+    <script>
+        let currentAudio = null;
+        let currentPlayingButton = null;
+
+        function togglePlay(url, button) {
+            const playIcon = button.querySelector('.play-icon');
+            const pauseIcon = button.querySelector('.pause-icon');
+            if (currentAudio && currentAudio.src === url && !currentAudio.paused) {
+                currentAudio.pause();
+            } else {
+                if (currentAudio) { currentAudio.pause(); }
+                currentAudio = new Audio(url);
+                currentAudio.play().catch(e => console.error("Erro ao tocar áudio:", e));
+                currentPlayingButton = button;
+                currentAudio.onplay = () => {
+                    document.querySelectorAll('.play-button').forEach(btn => {
+                        btn.querySelector('.play-icon').style.display = 'block';
+                        btn.querySelector('.pause-icon').style.display = 'none';
+                    });
+                    playIcon.style.display = 'none';
+                    pauseIcon.style.display = 'block';
+                };
+                currentAudio.onpause = currentAudio.onended = () => {
+                    if(currentPlayingButton === button) {
+                        playIcon.style.display = 'block';
+                        pauseIcon.style.display = 'none';
+                        currentAudio = null;
+                        currentPlayingButton = null;
+                    }
+                };
+            }
+        }
+
+        function fetchAndSetDetails() {
+            const cards = document.querySelectorAll('.card[data-track-id]');
+            const trackIds = Array.from(cards).map(card => card.dataset.trackId);
+            if (trackIds.length === 0) return;
+            fetch('/music/get-track-details', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ track_ids: trackIds })
+            })
+            .then(response => {
+                if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
+                return response.json();
+            })
+            .then(details => {
+                cards.forEach(card => {
+                    const trackId = card.dataset.trackId;
+                    if (details && details[trackId]) {
+                        if (details[trackId].image_url) {
+                            card.querySelector('.card-img').style.backgroundImage = `url('${details[trackId].image_url}')`;
+                        }
+                        if (details[trackId].preview_url) {
+                            card.querySelector('.play-button').dataset.previewUrl = details[trackId].preview_url;
+                        }
+                    }
+                });
+            }).catch(err => console.error("Falha ao buscar detalhes das faixas:", err));
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAndSetDetails();
+            document.querySelectorAll('.play-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const previewUrl = button.dataset.previewUrl;
+                    if (previewUrl && previewUrl !== 'null') {
+                        togglePlay(previewUrl, button);
+                    } else {
+                        alert('Prévia não disponível para esta música.');
+                    }
+                });
+            });
+        });
+    </script>
+    <!-- *** FIM DA ALTERAÇÃO *** -->
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!-- movies_results.html (Especificidade Final) -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Suas Recomendações de Filmes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --theme-black: #000000; --theme-dark-gray: #1a1a1a; --theme-light-gray: #333; --theme-text-gray: #b3b3b3; --theme-white: #ffffff; --theme-primary: #E50914; }
+        body { background-color: var(--theme-black ); color: var(--theme-white); font-family: 'Inter', sans-serif; margin: 0; padding: 2rem; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        header h1 { font-size: 2.2rem; text-align: center; margin-bottom: 3rem; color: var(--theme-primary); }
+        h2 { font-size: 1.8rem; border-bottom: 1px solid var(--theme-light-gray); padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+        p { color: var(--theme-text-gray); font-size: 1.1rem; }
+
+        .profile-section { margin-bottom: 3rem; border: 1px solid var(--theme-light-gray); padding: 1.5rem; border-radius: 8px; }
+        /* --- AJUSTE DE ESPECIFICIDADE E TAMANHO FINAL --- */
+        .profile-section h2 { font-size: 1.2rem; border-bottom: none; margin-bottom: 0; }
+        .profile-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+        .profile-badges { display: flex; gap: 1rem; flex-wrap: wrap; }
+        .profile-list { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+        .profile-item { background-color: var(--theme-light-gray); padding: 0.5rem 1rem; border-radius: 500px; font-size: 0.9rem; font-weight: 700; }
+        
+        .badge { padding: 0.6rem 1.2rem; border-radius: 500px; font-weight: 700; font-size: 0.9rem; background-color: var(--theme-primary); color: var(--theme-white); }
+
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 1.5rem; }
+        .recommendation-section { margin-bottom: 3rem; }
+        
+        .movie-card { background-color: var(--theme-dark-gray); border-radius: 4px; overflow: hidden; position: relative; }
+        .movie-card img { width: 100%; display: block; aspect-ratio: 2/3; object-fit: cover; }
+        .movie-card-info { padding: 1rem; }
+        .movie-card-info strong { font-size: 1rem; color: var(--theme-white); display: block; margin-bottom: 0.25rem; }
+        .movie-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; color: var(--theme-text-gray); }
+        .movie-card-meta span { display: flex; align-items: center; gap: 0.25rem; }
+        .movie-card-meta svg { width: 1rem; height: 1rem; fill: #f5c518; }
+        .movie-card-similarity { position: absolute; top: 8px; right: 8px; background-color: var(--theme-primary); color: white; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.9rem; font-weight: 700; }
+        
+        .back-link { display: inline-block; margin-top: 2rem; padding: 0.8rem 1.5rem; background-color: var(--theme-primary); color: var(--theme-white); text-decoration: none; border-radius: 500px; font-weight: 700; transition: transform 0.2s; }
+        .back-link:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header><h1>Suas Recomendações de Filmes</h1></header>
+        {% if profile and profile.movies %}
+        <section class="profile-section">
+            <div class="profile-header">
+                <h2>Seu Perfil de Filmes</h2>
+                <div class="profile-badges">
+                    {% if profile.favorite_genre %}<div class="badge">{{ 'Gênero Dominante: ' + profile.favorite_genre }}</div>{% endif %}
+                    {% if selected_genre %}<div class="badge">{{ 'Explorando: ' + selected_genre }}</div>{% endif %}
+                </div>
+            </div>
+            <p style="margin-top: 1rem;">Filmes selecionados:</p>
+            <div class="profile-list" style="margin-bottom: 1.5rem;">
+                {% for movie in profile.movies %}<div class="profile-item">{{ movie.title }}</div>{% endfor %}
+            </div>
+            {% if profile.unique_genres %}
+            <p style="margin-top: 0;">Gêneros encontrados na sua seleção:</p>
+            <div class="profile-list">
+                {% for genre in profile.unique_genres %}<div class="profile-item" style="background-color: #444;">{{ genre }}</div>{% endfor %}
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+        <!-- O resto do corpo do HTML continua o mesmo -->
+        {% if recommendations.main %}<section class="recommendation-section"><h2>Recomendações Principais</h2><div class="grid-container">{% for rec in recommendations.main %}{% include 'movie_card.html' %}{% endfor %}</div></section>{% endif %}
+        {% if recommendations.genre_favorites and selected_genre %}<section class="recommendation-section"><h2>Melhores de {{ selected_genre }}</h2><div class="grid-container">{% for rec in recommendations.genre_favorites %}{% include 'movie_card.html' %}{% endfor %}</div></section>{% endif %}
+        {% if recommendations.blockbusters %}<section class="recommendation-section"><h2>Blockbusters Populares</h2><div class="grid-container">{% for rec in recommendations.blockbusters %}{% include 'movie_card.html' %}{% endfor %}</div></section>{% endif %}
+        {% if recommendations.cult_classics %}<section class="recommendation-section"><h2>Clássicos Cult</h2><div class="grid-container">{% for rec in recommendations.cult_classics %}{% include 'movie_card.html' %}{% endfor %}</div></section>{% endif %}
+        {% if recommendations.hidden_gems %}<section class="recommendation-section"><h2>Jóias Escondidas</h2><div class="grid-container">{% for rec in recommendations.hidden_gems %}{% include 'movie_card.html' %}{% endfor %}</div></section>{% endif %}
+        <div style="text-align: center;"><a href="/movies" class="back-link">Gerar Novas Recomendações</a></div>
+    </div>
+</body>
+</html>

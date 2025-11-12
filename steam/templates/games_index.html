@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recomendador de Jogos Steam</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css"/>
+    <style>
+        :root {
+            --theme-primary: #66c0f4; --theme-background: #101821; --theme-card-background: #1b2838;
+            --theme-card-hover: #2a475e; --theme-text-primary: #ffffff; --theme-text-secondary: #c7d5e0;
+        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--theme-background ); color: var(--theme-text-secondary); margin: 0; padding: 2rem; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 2rem; }
+        header h1 { font-size: 2.5rem; color: var(--theme-primary); margin: 0 0 0.5rem 0; }
+        header p { font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
+        .form-grid { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: center; margin-bottom: 2rem; }
+        .search-container { position: relative; }
+        #search-input, select[name="genre"] {
+            width: 100%; padding: 1rem; font-size: 1rem; border-radius: 500px; border: none;
+            background-color: var(--theme-card-background); color: var(--theme-text-primary); box-sizing: border-box; outline: none;
+        }
+        #search-input { padding-left: 3.5rem; }
+        .search-container .fa-search { position: absolute; left: 1.5rem; top: 50%; transform: translateY(-50%); color: var(--theme-text-secondary); }
+        select[name="genre"] {
+            -webkit-appearance: none; -moz-appearance: none; appearance: none;
+            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23c7d5e0%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22/%3E%3C/svg%3E' );
+            background-repeat: no-repeat; background-position: right 1rem center; background-size: .65em auto; padding-right: 2.5rem;
+        }
+        #selection-container { background-color: var(--theme-card-background); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; display: none; }
+        #selection-container h2 { margin-top: 0; font-size: 1.2rem; color: var(--theme-text-primary); }
+        .selection-grid { display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; }
+        #selection-list { display: flex; flex-wrap: wrap; gap: 0.75rem; flex-grow: 1; }
+        .selection-item { background-color: var(--theme-card-hover); padding: 0.5rem 1rem; border-radius: 500px; font-size: 0.9rem; }
+        #recommend-btn {
+            background-color: var(--theme-primary); color: var(--theme-background); border: none; padding: 1rem 2rem;
+            font-size: 1rem; font-weight: 700; border-radius: 500px; cursor: pointer; transition: transform 0.2s, opacity 0.2s;
+        }
+        #recommend-btn:hover:not(:disabled) { transform: scale(1.05); }
+        #recommend-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .discover-section { margin-bottom: 2.5rem; overflow: hidden; }
+        .discover-section h2 { font-size: 1.8rem; color: var(--theme-text-primary); margin-bottom: 1.5rem; border-bottom: 1px solid var(--theme-card-hover); padding-bottom: 0.5rem; }
+        .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; }
+        .item-card {
+            background-color: var(--theme-card-background); border-radius: 4px; overflow: hidden; cursor: pointer;
+            transition: all 0.2s; border: 2px solid transparent; display: flex; flex-direction: column;
+        }
+        .item-card.selected { border-color: var(--theme-primary); transform: scale(1.02); }
+        .item-card img { width: 100%; display: block; aspect-ratio: 292 / 136; object-fit: cover; }
+        .item-card-info { padding: 1rem; text-align: left; flex-grow: 1; display: flex; flex-direction: column; }
+        .item-card-info strong { font-size: 1.1rem; color: var(--theme-text-primary); margin-bottom: 0.25rem; }
+        .item-card-info .genres { font-size: 0.9rem; color: var(--theme-text-secondary); opacity: 0.8; margin-top: auto; }
+        .swiper-slide { width: 280px; height: auto; }
+        .swiper-button-next, .swiper-button-prev { color: var(--theme-primary); }
+        .swiper-button-disabled { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Recomendador de Jogos</h1>
+            <p>Escolha 3 ou mais jogos que você gosta e um gênero para explorar.</p>
+        </header>
+        <form id="recommend-form" action="{{ recommend_url | safe }}" method="POST">
+            <input type="hidden" name="game_ids_json" id="game_ids_json">
+            <div class="form-grid">
+                <div class="search-container">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-input" placeholder="Busque por um jogo para adicionar ao seu perfil...">
+                </div>
+                <select name="genre">
+                    <option value="">-- Gênero para Explorar (Opcional) --</option>
+                    {% for genre in genres %}<option value="{{ genre }}">{{ genre }}</option>{% endfor %}
+                </select>
+            </div>
+            <section id="selection-container">
+                <h2>Seu Perfil de Jogos</h2>
+                <div class="selection-grid">
+                    <div id="selection-list"></div>
+                    <button type="submit" id="recommend-btn" disabled>Gerar Recomendações</button>
+                </div>
+            </section>
+        </form>
+        <div id="results-container"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+    <script>
+        const searchInput = document.getElementById('search-input' );
+        const resultsContainer = document.getElementById('results-container');
+        const selectionContainer = document.getElementById('selection-container');
+        const selectedList = document.getElementById('selection-list');
+        const recommendBtn = document.getElementById('recommend-btn');
+        const hiddenInput = document.getElementById('game_ids_json');
+        
+        let searchTimeout;
+        let selectedItems = new Map();
+        const searchUrlBase = "{{ search_url | safe }}";
+        const discoverUrl = "{{ discover_url | safe }}";
+
+        function createItemCard(item, isCarousel = false) {
+            const card = document.createElement('div');
+            card.className = 'item-card';
+            if (isCarousel) card.classList.add('swiper-slide');
+            card.dataset.appid = item.appid;
+            if (selectedItems.has(item.appid)) card.classList.add('selected');
+            
+            const genresText = Array.isArray(item.genres) ? item.genres.slice(0, 3).join(' · ') : '';
+            
+            card.innerHTML = `
+                <img src="${item.header_image}" alt="${item.name}" onerror="this.style.display='none'">
+                <div class="item-card-info">
+                    <strong>${item.name}</strong>
+                    <span class="genres">${genresText}</span>
+                </div>
+            `;
+            card.addEventListener('click', () => handleCardClick(item, card));
+            return card;
+        }
+
+        function handleCardClick(item, cardElement) {
+            if (selectedItems.has(item.appid)) {
+                selectedItems.delete(item.appid);
+                cardElement.classList.remove('selected');
+            } else {
+                selectedItems.set(item.appid, item);
+                cardElement.classList.add('selected');
+            }
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            selectionContainer.style.display = selectedItems.size > 0 ? 'block' : 'none';
+            selectedList.innerHTML = '';
+            selectedItems.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'selection-item';
+                div.textContent = item.name;
+                selectedList.appendChild(div);
+            });
+            recommendBtn.disabled = selectedItems.size < 3;
+            hiddenInput.value = JSON.stringify(Array.from(selectedItems.keys()));
+        }
+
+        async function showSearchResults(query) {
+            const response = await fetch(`${searchUrlBase}?q=${encodeURIComponent(query)}`);
+            const items = await response.json();
+            resultsContainer.innerHTML = '<div class="discover-section"><h2>Resultados da Busca</h2><div class="results-grid"></div></div>';
+            const grid = resultsContainer.querySelector('.results-grid');
+            if (items.length === 0) {
+                grid.innerHTML = '<p style="text-align: center; width: 100%;">Nenhum jogo encontrado.</p>';
+            } else {
+                items.forEach(item => grid.appendChild(createItemCard(item, false)));
+            }
+        }
+
+        async function showDiscoverResults() {
+            const response = await fetch(discoverUrl);
+            const data = await response.json();
+            let html = '';
+
+            if (data.iconic_games && data.iconic_games.length > 0) {
+                html += `<div class="discover-section"><h2>Ícones dos Games</h2><div class="swiper" id="swiper-iconic"><div class="swiper-wrapper"></div><div class="swiper-button-prev"></div><div class="swiper-button-next"></div></div></div>`;
+            }
+            if (data.explore_games && data.explore_games.length > 0) {
+                html += `<div class="discover-section"><h2>Para Explorar</h2><div class="swiper" id="swiper-explore"><div class="swiper-wrapper"></div><div class="swiper-button-prev"></div><div class="swiper-button-next"></div></div></div>`;
+            }
+            
+            resultsContainer.innerHTML = html;
+
+            const swiperOptions = {
+                slidesPerView: 'auto', spaceBetween: 16,
+                navigation: { nextEl: '.swiper-button-next', prevEl: '.swiper-button-prev' },
+                autoplay: { delay: 3500, disableOnInteraction: false, pauseOnMouseEnter: true },
+            };
+
+            if (data.iconic_games) {
+                const iconicWrapper = document.querySelector('#swiper-iconic .swiper-wrapper');
+                data.iconic_games.forEach(item => iconicWrapper.appendChild(createItemCard(item, true)));
+                new Swiper('#swiper-iconic', { ...swiperOptions, navigation: { nextEl: '#swiper-iconic .swiper-button-next', prevEl: '#swiper-iconic .swiper-button-prev' } });
+            }
+            if (data.explore_games) {
+                const exploreWrapper = document.querySelector('#swiper-explore .swiper-wrapper');
+                data.explore_games.forEach(item => exploreWrapper.appendChild(createItemCard(item, true)));
+                new Swiper('#swiper-explore', { ...swiperOptions, navigation: { nextEl: '#swiper-explore .swiper-button-next', prevEl: '#swiper-explore .swiper-button-prev' } });
+            }
+        }
+
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const query = searchInput.value.trim();
+                if (query.length >= 3) {
+                    showSearchResults(query);
+                } else if (query.length === 0) {
+                    showDiscoverResults();
+                }
+            }, 300);
+        });
+
+        document.addEventListener('DOMContentLoaded', showDiscoverResults);
+        updateSelectionUI();
+    </script>
+</body>
+</html>
